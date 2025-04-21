@@ -4,7 +4,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.HashSet;
+import java.util.*;
 import java.util.LinkedList;
 import java.util.Queue;
 import java.util.concurrent.*;
@@ -14,17 +14,23 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.jsoup.Jsoup;
-
 public class Main {
-    private static final ConcurrentHashMap<String, Boolean> visitedUrls = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, Boolean> contentFingerprints = new ConcurrentHashMap<>();
+    private static final DBController mongoDB = new DBController();
+    private static Set<String> visitedUrls = new HashSet<String>();
+    private static Set<String> contentFingerprints = new HashSet<String>();
     private static final AtomicBoolean foundDuplicate = new AtomicBoolean(false);
     private static final AtomicInteger duplicateCount = new AtomicInteger(0);
     private static final int THREAD_POOL_SIZE = 5; // Adjust based on your needs
 
     private static final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
-    private static final BlockingQueue<String> urlQueue = new LinkedBlockingQueue<>();
+    private static BlockingQueue<String> urlQueue = new LinkedBlockingQueue<>();
+    static {
+        mongoDB.initializeDatabaseConnection();
 
+        visitedUrls = mongoDB.getVisitedPages();
+        contentFingerprints = mongoDB.getCompactStrings();
+        urlQueue = mongoDB.getPendingPages();
+    }
     public static void crawl() {
         while (!foundDuplicate.get() && !Thread.currentThread().isInterrupted()) {
             try {
@@ -39,7 +45,8 @@ public class Main {
                 String normalizedUrl = Normalize.normalizeUrl(crawledUrl);
 
                 // Skip if visited (thread-safe check)
-                if (visitedUrls.putIfAbsent(normalizedUrl, true) != null) {
+                // to check tommorow
+                if (!visitedUrls.add(normalizedUrl)) {
                     continue;
                 }
 
@@ -58,7 +65,9 @@ public class Main {
                     String fingerprint = Normalize.generateSiteFingerprint(doc);
 
                     // Check for duplicate content (thread-safe)
-                    if (contentFingerprints.putIfAbsent(fingerprint, true) != null) {
+
+                    // to check tommorow
+                    if (!contentFingerprints.add(fingerprint)) {
                         System.out.println("[DUPLICATE] Found duplicate content at: " + crawledUrl +
                                 " (" + Thread.currentThread().getName() + ")");
                         System.out.println("[DUPLICATE] Fingerprint: " + fingerprint);
@@ -77,7 +86,7 @@ public class Main {
                     for (Element link : links) {
                         String nextUrl = link.attr("abs:href");
                         String normalizedNextUrl = Normalize.normalizeUrl(nextUrl);
-                        if (!visitedUrls.containsKey(normalizedNextUrl)) {
+                        if (visitedUrls.contains(normalizedNextUrl)) {
                             urlQueue.offer(nextUrl);
                         }
                     }
