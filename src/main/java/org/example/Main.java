@@ -16,19 +16,15 @@ import org.jsoup.Jsoup;
 public class Main {
     private static final HashSet<String> visitedUrls = new HashSet<>();
     private static final HashSet<String> contentFingerprints = new HashSet<>();
-    private static final AtomicBoolean foundDuplicate = new AtomicBoolean(false);
-    private static final int MAX_DUPLICATES = 3; // Stop after finding this many duplicates
-    private static int duplicateCount = 0;
+
 
     public static void crawl(String url) {
-        if (foundDuplicate.get()) {
-            return;
-        }
+
 
         Queue<String> queue = new LinkedList<>();
         queue.add(url);
 
-        while (!queue.isEmpty() && !foundDuplicate.get()) {
+        while (!queue.isEmpty()) {
             String crawledUrl = queue.poll();
             String normalizedUrl = Normalize.normalizeUrl(crawledUrl);
 
@@ -53,15 +49,8 @@ public class Main {
 
                 // Check for duplicate content
                 if (contentFingerprints.contains(fingerprint)) {
-                    duplicateCount++;
                     System.out.println("[DUPLICATE] Found duplicate content at: " + crawledUrl);
                     System.out.println("[DUPLICATE] Fingerprint: " + fingerprint);
-
-                    if (duplicateCount >= MAX_DUPLICATES) {
-                        foundDuplicate.set(true);
-                        System.out.println("[STOPPING] Too many duplicates found. Stopping crawl.");
-                        break;
-                    }
                     continue;
                 }
 
@@ -78,13 +67,10 @@ public class Main {
                 for (Element link : links) {
                     String nextUrl = link.attr("abs:href");
                     String normalizedNextUrl = Normalize.normalizeUrl(nextUrl);
-                    if (!isVisited(normalizedNextUrl) && !foundDuplicate.get()) {
+                    if (!isVisited(normalizedNextUrl)) {
                         queue.add(nextUrl);
                     }
                 }
-
-                // Respect crawl delay
-                Thread.sleep(1000);
 
             } catch (Exception e) {
                 System.out.println("[ERROR] Failed to crawl " + crawledUrl + ": " + e.getMessage());
@@ -106,7 +92,7 @@ public class Main {
         Path path = Path.of("URLS.txt");
         try (var reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             String line;
-            while ((line = reader.readLine()) != null && !foundDuplicate.get()) {
+            while ((line = reader.readLine()) != null) {
                 System.out.println("\nStarting crawl for: " + line);
                 crawl(line);
             }
@@ -116,6 +102,5 @@ public class Main {
 
         System.out.println("\nCrawl finished.");
         System.out.println("Unique pages visited: " + visitedUrls.size());
-        System.out.println("Duplicate pages found: " + duplicateCount);
     }
 }
