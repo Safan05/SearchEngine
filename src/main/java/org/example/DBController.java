@@ -47,7 +47,8 @@ public class DBController {
     public PorterStemmer stemmer = new PorterStemmer();
 
     public void initializeDatabaseConnection() {
-        mongoClient = MongoClients.create();
+        String uri = "mongodb+srv://abdallahsafan05:a123456789@cluster0.qyomt.mongodb.net/";
+        mongoClient = MongoClients.create(uri);
         database = mongoClient.getDatabase("SearchEngine");
 
         pageCollection = database.getCollection("VisitedPages");

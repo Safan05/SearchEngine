@@ -13,26 +13,24 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
+
 import org.jsoup.Jsoup;
 public class Main {
     private static final DBController mongoDB = new DBController();
     private static Set<String> visitedUrls = new HashSet<String>();
     private static Set<String> contentFingerprints = new HashSet<String>();
-    private static final AtomicBoolean foundDuplicate = new AtomicBoolean(false);
-    private static final AtomicInteger duplicateCount = new AtomicInteger(0);
     private static final int THREAD_POOL_SIZE = 5; // Adjust based on your needs
 
     private static final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
     private static BlockingQueue<String> urlQueue = new LinkedBlockingQueue<>();
-    static {
-        mongoDB.initializeDatabaseConnection();
-
-        visitedUrls = mongoDB.getVisitedPages();
-        contentFingerprints = mongoDB.getCompactStrings();
-        urlQueue = mongoDB.getPendingPages();
-    }
+   // static {
+    //    mongoDB.initializeDatabaseConnection();
+    //    visitedUrls = mongoDB.getVisitedPages();
+    //    contentFingerprints = mongoDB.getCompactStrings();
+    //    urlQueue = mongoDB.getPendingPages();
+   // }
     public static void crawl() {
-        while (!foundDuplicate.get() && !Thread.currentThread().isInterrupted()) {
+        while (!urlQueue.isEmpty() && !Thread.currentThread().isInterrupted()) {
             try {
                 String crawledUrl = urlQueue.poll(1, TimeUnit.SECONDS);
                 if (crawledUrl == null) {
@@ -41,9 +39,7 @@ public class Main {
                     }
                     continue;
                 }
-
                 String normalizedUrl = Normalize.normalizeUrl(crawledUrl);
-
                 // Skip if visited (thread-safe check)
                 // to check tommorow
                 if (!visitedUrls.add(normalizedUrl)) {
@@ -86,7 +82,7 @@ public class Main {
                     for (Element link : links) {
                         String nextUrl = link.attr("abs:href");
                         String normalizedNextUrl = Normalize.normalizeUrl(nextUrl);
-                        if (visitedUrls.contains(normalizedNextUrl)) {
+                        if (!visitedUrls.contains(normalizedNextUrl)) {
                             urlQueue.offer(nextUrl);
                         }
                     }
@@ -138,6 +134,5 @@ public class Main {
 
         System.out.println("\nCrawl finished.");
         System.out.println("Unique pages visited: " + visitedUrls.size());
-        System.out.println("Duplicate pages found: " + duplicateCount.get());
     }
 }
