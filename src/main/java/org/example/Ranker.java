@@ -1,111 +1,141 @@
 package org.example;
+
 import java.util.*;
 
-public class Ranker {
-    private static final DBController mongoDB = new DBController();
+import org.bson.Document;
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
+import org.jsoup.select.Elements;
+import org.springframework.stereotype.Component;
 
-    private static final double TITLE_WEIGHT = 1.0;
-    private static final double H1_WEIGHT = 0.8;
-    private static final double H2_WEIGHT = 0.6;
-    private static final double H3_WEIGHT = 0.4;
-    static {
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Updates;
+
+@Component
+public class Ranker {
+    final private DBController mongoDB = new DBController();
+
+    public Ranker() {
         mongoDB.initializeDatabaseConnection();
     }
 
-    private final Map<String, Double> linkScores = new HashMap<>();
-    private final Map<String, Double> sortedLinkScores = new LinkedHashMap<>();
-    private final List<String> sortedLinks = new ArrayList<>();
-    private List<WordResult> wordResults = new ArrayList<>();
+    public void rankResultPages() {
 
-    public void score(List<WordResult> results, List<String> queryWords) {
-        this.wordResults = results;
+    }
 
-        // 1. Score based on headers (h1, h2, h3)
-        for (WordResult result : results) {
-            for (int i = 0; i < result.getLinks().size(); i++) {
-                String link = normalizeUrl(result.getLinks().get(i));
-                List<Boolean> headers = result.getHeaders().get(i);
+    public void sortPages(List<Document> unsortedResult) {
+        unsortedResult.sort(new Comparator<Document>() {
+            @Override
+            public int compare(Document d1, Document d2) {
+                return d2.getDouble("Rank").compareTo(d1.getDouble("Rank"));
+            }
+        });
+    }
 
-                double headerScore = 0.0;
-                if (headers.get(0)) headerScore += H1_WEIGHT;
-                if (headers.get(1)) headerScore += H2_WEIGHT;
-                if (headers.get(2)) headerScore += H3_WEIGHT;
+    void computePagePopularity() {
+        long numPages = mongoDB.pageCollection.countDocuments();
+        System.out.println("Number of pages in db: " + numPages);
 
-                linkScores.put(link, linkScores.getOrDefault(link, 0.0) + headerScore);
+        double dampingFactor = 0.85;
+        Graph PRGraph = createGraph(numPages);
+        connectNodes(PRGraph);
+
+        boolean updated = true;
+        while (updated) {
+
+            // resetting 'updated' at start of each iteration
+            updated = false;
+
+            for (Graph.Node node : PRGraph.nodes) {
+                double prevPageRank = node.pageRank;
+                double newPageRank = (1 - dampingFactor) / (double) numPages;
+                // calculate sum of share of referencing pages' pageranks
+                double sigma = 0;
+
+                for (Graph.Node ref : node.refs) {
+                    sigma += ref.pageRank / (double) ref.numOutgoingLinks;
+                }
+
+                newPageRank += dampingFactor * sigma;
+                node.pageRank = newPageRank;
+
+                // If page rank values have not yet converged, then we go for another iteration
+                if (newPageRank != prevPageRank)
+                    updated = true;
             }
         }
 
-        // 2. Score based on TF-IDF
-        for (WordResult result : results) {
-            for (int i = 0; i < result.getLinks().size(); i++) {
-                String link = normalizeUrl(result.getLinks().get(i));
-                double tfIdfScore = 5.0 * result.getTF().get(i) * result.getIdf();
-                linkScores.put(link, linkScores.getOrDefault(link, 0.0) + tfIdfScore);
-            }
-        }
+        for (Graph.Node node : PRGraph.nodes)
+            mongoDB.pageCollection.updateOne(Filters.eq("Link", node.URL), Updates.set("PageRank", node.pageRank));
+    }
 
-        // 3. Score based on word occurrence in Title
-        for (WordResult result : results) {
-            for (int i = 0; i < result.getTitles().size(); i++) {
-                String link = normalizeUrl(result.getLinks().get(i));
-                String title = result.getTitles().get(i).toLowerCase();
-                for (String word : queryWords) {
-                    if (title.contains(word.toLowerCase())) {
-                        linkScores.put(link, linkScores.getOrDefault(link, 0.0) + 7 * 0.5);
-                        break; // Don't count multiple times for the same title
-                    }
+    /**
+     * Creates a new graph and creates a node for each page in the DB collection,
+     * and stores its URL, initial page rank and array of outgoing links
+     *
+     * @param numPages
+     */
+    Graph createGraph(long numPages) {
+        MongoCursor<Document> cursor = mongoDB.pageCollection.find().iterator();
+        Graph PRGraph = new Graph();
+        double initialPR = (double) 1 / numPages;
+
+        // Creating a node in the graph for each page, and storing its URL, page rank
+        // and outgoing URLs
+        while (cursor.hasNext()) {
+            Document page = cursor.next();
+            String URL = page.getString("Link");
+
+            String HTMLContent = page.getString("HTML");
+            org.jsoup.nodes.Document parsedPage = Jsoup.parse(HTMLContent);
+            Elements aTags = parsedPage.select("a[href]");
+
+            Graph.Node newNode = new Graph.Node(URL, initialPR);
+
+            // Fill array of outgoing links
+            for (Element tag : aTags) {
+                String outgoingURL = tag.attr("href");
+                newNode.outgoingLinks.add(outgoingURL);
+            }
+            PRGraph.nodes.add(newNode);
+        }
+        return PRGraph;
+    }
+
+    /**
+     * This function builds the connections inside the graph of pages.
+     * It iterates over each node in the graph, and checks out its outgoing links,
+     * if a link leads to a page that exists in the graph, it stores a ref in the
+     * *referenced* page,
+     * if the page does not exist in the graph, it deletes the URL from the array
+     * outgoingLinks.
+     *
+     * @param PRGraph
+     */
+    void connectNodes(Graph PRGraph) {
+        for (Graph.Node node : PRGraph.nodes) {
+            Iterator<String> it = node.outgoingLinks.iterator();
+
+            while (it.hasNext()) {
+                String link = it.next();
+                Graph.Node referencedPage;
+
+                if ((referencedPage = PRGraph.containsNode(link)) != null) {
+                    referencedPage.refs.add(node);
+                } else {
+                    it.remove();
                 }
             }
         }
 
-        // 4. Score based on PageRank
-        for (WordResult result : results) {
-            for (int i = 0; i < result.getLinks().size(); i++) {
-                String link = normalizeUrl(result.getLinks().get(i));
-                double pagerankScore = 10.0 * result.getRanks().get(i);
-                linkScores.put(link, linkScores.getOrDefault(link, 0.0) + pagerankScore);
-            }
+        for (Graph.Node node : PRGraph.nodes) {
+            node.numOutgoingLinks = node.outgoingLinks.size();
         }
     }
 
-    public void sortByValue() {
-        List<Map.Entry<String, Double>> list = new LinkedList<>(linkScores.entrySet());
-        list.sort((a, b) -> b.getValue().compareTo(a.getValue()));
-
-        for (Map.Entry<String, Double> entry : list) {
-            sortedLinkScores.put(entry.getKey(), entry.getValue());
-            sortedLinks.add(entry.getKey());
-        }
-    }
-
-    public List<RankerResult> setResults() {
-        List<RankerResult> results = new ArrayList<>();
-        List<String> allLinks = new ArrayList<>();
-        List<String> allTitles = new ArrayList<>();
-        List<String> allDescriptions = new ArrayList<>();
-
-        for (WordResult result : wordResults) {
-            allLinks.addAll(result.getLinks());
-            allTitles.addAll(result.getTitles());
-            allDescriptions.addAll(result.getDescriptions());
-        }
-
-        for (String link : sortedLinks) {
-            int index = allLinks.indexOf(link);
-            if (index != -1) {
-                RankerResult res = new RankerResult();
-                res.setLink(link);
-                res.setTitle(allTitles.get(index));
-                res.setDescription(allDescriptions.get(index));
-                results.add(res);
-            }
-        }
-
-        return results;
-    }
-
-    private String normalizeUrl(String url) {
-        if (url == null) return "";
-        return url.trim().toLowerCase(); // You can improve this later for real normalization
+    public static void main(String[] args) {
+        Ranker rank = new Ranker();
+        rank.computePagePopularity();
     }
 }
