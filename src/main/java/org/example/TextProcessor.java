@@ -1,4 +1,4 @@
-package org.example.indexer;
+package org.example;
 import java.util.*;
 import java.util.regex.*;
 

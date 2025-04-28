@@ -1,17 +1,15 @@
-package org.example.indexer;
+package org.example;
 
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.jsoup.nodes.Element;
-import com.mongodb.client.MongoDatabase;
-import com.mongodb.client.MongoCollection;
 import java.util.*;
 
 public class Indexer {
-    private MongoDatabase database;
+    DBController mongoDB = new DBController();
 
     public Indexer(Document document, String url) {
-        database = MongoDatabase.getConnection();
+        mongoDB.initializeDatabaseConnection();
 
         String title = document.title();
         String link = url;
@@ -28,22 +26,11 @@ public class Indexer {
         Map<String, Integer> termFrequency = computeTF(normalized);
 
         // Store page meta info
-        MongoCollection<org.bson.Document> pagesCollection = database.getCollection("pages");
-        org.bson.Document pageDoc = new org.bson.Document()
-                .append("title", title)
-                .append("url", url)
-                .append("content", normalized);
-        pagesCollection.insertOne(pageDoc);
 
-        // Store term frequencies
-        MongoCollection<org.bson.Document> termsCollection = database.getCollection("terms");
-        for (Map.Entry<String, Integer> entry : termFrequency.entrySet()) {
-            org.bson.Document termDoc = new org.bson.Document()
-                    .append("term", entry.getKey())
-                    .append("url", url)
-                    .append("tf", entry.getValue());
-            termsCollection.insertOne(termDoc);
-        }
+        // Store page meta info using DBController method
+        mongoDB.storePageMetaInfo(title, url, normalized);
+        // Store term frequencies using DBController method
+        mongoDB.storeTermFrequencies(termFrequency, url);
     }
 
     // Compute raw term frequencies

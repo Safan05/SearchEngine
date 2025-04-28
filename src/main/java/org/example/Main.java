@@ -13,9 +13,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
-
 import org.jsoup.Jsoup;
-public class Main {
+
+public class Main extends Thread{
     private static final DBController mongoDB = new DBController();
     private static Set<String> visitedUrls = new HashSet<String>();
     private static Set<String> contentFingerprints = new HashSet<String>();
@@ -23,13 +23,15 @@ public class Main {
 
     private static final ExecutorService executorService = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
     private static BlockingQueue<String> urlQueue = new LinkedBlockingQueue<>();
-   // static {
-    //    mongoDB.initializeDatabaseConnection();
-    //    visitedUrls = mongoDB.getVisitedPages();
-    //    contentFingerprints = mongoDB.getCompactStrings();
-    //    urlQueue = mongoDB.getPendingPages();
-   // }
-    public static void crawl() {
+    static {
+        mongoDB.initializeDatabaseConnection();
+        visitedUrls = mongoDB.getVisitedPages();
+        contentFingerprints = mongoDB.getCompactStrings();
+        urlQueue = mongoDB.getPendingPages();
+    }
+
+    @Override
+    public void run() {
         while (!urlQueue.isEmpty() && !Thread.currentThread().isInterrupted()) {
             try {
                 String crawledUrl = urlQueue.poll(1, TimeUnit.SECONDS);
@@ -92,6 +94,7 @@ public class Main {
                             " (" + Thread.currentThread().getName() + "): " + e.getMessage());
                 }
             } catch (InterruptedException e) {
+                System.out.println("[ERROR] Interrupted: " + e.getMessage());
                 Thread.currentThread().interrupt();
                 break;
             }
@@ -113,8 +116,13 @@ public class Main {
             }
 
             // Start multiple crawler threads
-            for (int i = 0; i < THREAD_POOL_SIZE; i++) {
-                executorService.submit(Main::crawl);
+//            for (int i = 0; i < THREAD_POOL_SIZE; i++) {
+//                executorService.submit(Main::crawl);
+//            }
+
+            for(int i = 0; i<THREAD_POOL_SIZE; i++)
+            {
+                new Thread(new Main()).start();
             }
 
             // Wait for completion or duplicate limit

@@ -41,7 +41,9 @@ public class DBController {
     public MongoClient mongoClient;
     public MongoDatabase database;
     public MongoCollection<Document> pageCollection;
+    public MongoCollection<Document> termsCollection;
     public MongoCollection<Document> wordCollection;
+    public MongoCollection<Document> pagesCollection;
     public MongoCollection<Document> queryHistoryCollection;
     public MongoCollection<Document> toVisitCollection;
     public PorterStemmer stemmer = new PorterStemmer();
@@ -50,9 +52,9 @@ public class DBController {
         String uri = "mongodb+srv://abdallahsafan05:a123456789@cluster0.qyomt.mongodb.net/";
         mongoClient = MongoClients.create(uri);
         database = mongoClient.getDatabase("SearchEngine");
-
+        pageCollection = database.getCollection("pages");
         pageCollection = database.getCollection("VisitedPages");
-
+        termsCollection = database.getCollection("terms");
       //  wordCollection = database.getCollection("Word");
       //  queryHistoryCollection = database.getCollection("QueryHistory");
         toVisitCollection = database.getCollection("PendingPages");
@@ -314,7 +316,52 @@ public class DBController {
         iterable.into(result);
         return result;
     }
+    /**
+     * Stores page metadata (title, URL, content) in the pages collection
+     * @param title Page title
+     * @param url Page URL
+     * @param normalized Normalized page content
+     */
+    public void storePageMetaInfo(String title, String url, String normalized) {
+        Document pageDoc = new Document()
+                .append("title", title)
+                .append("url", url)
+                .append("content", normalized);
+        pagesCollection.insertOne(pageDoc);
+    }
 
+    /**
+     * Stores term frequencies for a page
+     * @param termFrequency Map of terms to their frequencies
+     * @param url URL of the page these terms belong to
+     */
+    public void storeTermFrequencies(Map<String, Integer> termFrequency, String url) {
+        for (Map.Entry<String, Integer> entry : termFrequency.entrySet()) {
+            Document termDoc = new Document()
+                    .append("term", entry.getKey())
+                    .append("url", url)
+                    .append("tf", entry.getValue());
+            termsCollection.insertOne(termDoc);
+        }
+    }
+
+    /**
+     * Gets term frequencies for a specific URL
+     * @param url URL to get term frequencies for
+     * @return List of documents containing term frequency data
+     */
+    public List<Document> getTermFrequencies(String url) {
+        return termsCollection.find(eq("url", url)).into(new ArrayList<>());
+    }
+
+    /**
+     * Gets page metadata for a specific URL
+     * @param url URL to get metadata for
+     * @return Document containing page metadata or null if not found
+     */
+    public Document getPageMetaInfo(String url) {
+        return pagesCollection.find(eq("url", url)).first();
+    }
    /* public Set<ObjectId> searchByWords(String query) {
         String[] queryWords = query.split("\\s+");
         Set<ObjectId> commonPages = new HashSet<>();
