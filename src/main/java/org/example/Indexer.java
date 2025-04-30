@@ -1,38 +1,55 @@
 package org.example;
 
+import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.jsoup.nodes.Element;
+
+import java.io.IOException;
 import java.util.*;
 
 public class Indexer {
     DBController mongoDB = new DBController();
-    private Set<String> visitedUrls = Collections.synchronizedSet(new HashSet<String>());
-    public Indexer(Document document, String url) {
+    private Set<String> visitedUrls;
 
+    public Indexer() {
+        System.out.println("Indexer started.");
         mongoDB.initializeDatabaseConnection();
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
 
-        String title = document.title();
-        String link = url;
+        List<org.bson.Document> nonIndexedPages = mongoDB.getnonIndexedPages();
 
-        // Extract relevant elements
-        Elements elements = document.select("h1, h2, h3, p, li");
-        StringBuilder contentBuilder = new StringBuilder();
-        for (Element element : elements) {
-            contentBuilder.append(element.text()).append(" ");
+        for (org.bson.Document page : nonIndexedPages) {
+            String url = page.getString("URL");
+            if (url == null || visitedUrls.contains(url)) continue;
+
+            try {
+                Document document = Jsoup.connect(url).get();
+
+                String title = document.title();
+
+                // Extract content
+                Elements elements = document.select("h1, h2, h3, p, li");
+                StringBuilder contentBuilder = new StringBuilder();
+                for (Element element : elements) {
+                    contentBuilder.append(element.text()).append(" ");
+                }
+
+                String rawText = contentBuilder.toString();
+                String normalized = TextProcessor.normalize(rawText);
+                Map<String, Integer> termFrequency = computeTF(normalized);
+
+                // Store in database
+                mongoDB.storePageMetaInfo(title, url, normalized);
+                mongoDB.storeTermFrequencies(termFrequency, url);
+
+                // Mark page as indexed
+                mongoDB.setIndexedAsTrue(page.getObjectId("_id"));
+
+            } catch (IOException e) {
+                System.err.println("Failed to fetch or index URL: " + url);
+            }
         }
-
-        String rawText = contentBuilder.toString();
-        String normalized = TextProcessor.normalize(rawText);
-        Map<String, Integer> termFrequency = computeTF(normalized);
-
-        // Store page meta info
-
-        // Store page meta info using DBController method
-        mongoDB.storePageMetaInfo(title, url, normalized);
-        // Store term frequencies using DBController method
-        mongoDB.storeTermFrequencies(termFrequency, url);
     }
 
     // Compute raw term frequencies
@@ -41,6 +58,7 @@ public class Indexer {
         String[] words = text.split("\\s+");
         for (String word : words) {
             tfMap.put(word, tfMap.getOrDefault(word, 0) + 1);
+            System.out.println("Words"+word);
         }
         return tfMap;
     }
