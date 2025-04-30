@@ -7,9 +7,11 @@ import java.util.*;
 
 public class Indexer {
     DBController mongoDB = new DBController();
-
+    private Set<String> visitedUrls = Collections.synchronizedSet(new HashSet<String>());
     public Indexer(Document document, String url) {
+
         mongoDB.initializeDatabaseConnection();
+        visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
 
         String title = document.title();
         String link = url;

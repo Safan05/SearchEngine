@@ -49,8 +49,8 @@ public class DBController {
     public PorterStemmer stemmer = new PorterStemmer();
 
     public void initializeDatabaseConnection() {
-        String uri = "mongodb+srv://abdallahsafan05:a123456789@cluster0.qyomt.mongodb.net/";
-        mongoClient = MongoClients.create(uri);
+   //     String uri = "mongodb+srv://abdallahsafan05:a123456789@cluster0.qyomt.mongodb.net/";
+        MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017");
         database = mongoClient.getDatabase("SearchEngine");
         pageCollection = database.getCollection("pages");
         pageCollection = database.getCollection("VisitedPages");
@@ -69,124 +69,6 @@ public class DBController {
             while (cursor.hasNext()) {
                 System.out.println(cursor.next().toJson());
             }
-        }
-    }
-
-    public void insertOne(Document doc, String collectionName) {
-        InsertOneResult result;
-        switch (collectionName) {
-            case "VisitedPages":
-                result = pageCollection.insertOne(doc);
-                System.out.println("Inserted a document with the following id: "
-                        + Objects.requireNonNull(result.getInsertedId()).asObjectId().getValue());
-                break;
-            case "Word":
-                result = wordCollection.insertOne(doc);
-                System.out.println("Inserted a document with the following id: "
-                        + Objects.requireNonNull(result.getInsertedId()).asObjectId().getValue());
-                break;
-            case "QueryHistory":
-                result = queryHistoryCollection.insertOne(doc);
-                System.out.println("Inserted a document with the following id: "
-                        + Objects.requireNonNull(result.getInsertedId()).asObjectId().getValue());
-                break;
-            case "PendingPages":
-                result = toVisitCollection.insertOne(doc);
-                System.out.println("Inserted a document with the following id: "
-                        + Objects.requireNonNull(result.getInsertedId()).asObjectId().getValue());
-                break;
-        }
-    }
-    public void addOne(Document doc, String collectionName) {
-        switch (collectionName) {
-            case "VisitedPages":
-                pageCollection.insertOne(doc);
-                break;
-            case "Word":
-                wordCollection.insertOne(doc);
-                break;
-            case "QueryHistory":
-                queryHistoryCollection.insertOne(doc);
-                break;
-            case "PendingPages":
-                toVisitCollection.insertOne(doc);
-                break;
-        }
-    }
-
-    public Document findOne(Bson filter, String collectionName) {
-        switch (collectionName) {
-            case "VisitedPages":
-                return pageCollection.find(filter).first();
-            case "Word":
-                return wordCollection.find(filter).first();
-            case "QueryHistory":
-                return queryHistoryCollection.find(filter).first();
-            case "PendingPages":
-                return toVisitCollection.find(filter).first();
-            default:
-                return null;
-        }
-    }
-
-    public void replaceOne(Bson filter, Document doc, String collectionName) {
-        switch (collectionName) {
-            case "VisitedPages":
-                pageCollection.replaceOne(filter, doc);
-                break;
-            case "Word":
-                wordCollection.replaceOne(filter, doc);
-                break;
-            case "QueryHistory":
-                queryHistoryCollection.replaceOne(filter, doc);
-                break;
-            case "PendingPages":
-                toVisitCollection.replaceOne(filter, doc);
-                break;
-        }
-    }
-
-    public void deleteOne(Bson filter, String collectionName) {
-        switch (collectionName) {
-            case "VisitedPages":
-                pageCollection.deleteOne(filter);
-                break;
-            case "Word":
-                wordCollection.deleteOne(filter);
-                break;
-            case "QueryHistory":
-                queryHistoryCollection.deleteOne(filter);
-                break;
-            case "PendingPages":
-                toVisitCollection.deleteOne(filter);
-                break;
-        }
-    }
-
-    public void dropCollection(String collectionName) {
-        switch (collectionName) {
-            case "VisitedPages":
-                pageCollection.drop();
-                break;
-            case "Word":
-                wordCollection.drop();
-                break;
-            case "History":
-                queryHistoryCollection.drop();
-                break;
-            case "PendingPages":
-                toVisitCollection.drop();
-                break;
-        }
-    }
-
-    public String getFirstToVisit() throws IOException {
-        Document firstToVisit = toVisitCollection.find().limit(1).first();
-        if (firstToVisit != null) {
-            toVisitCollection.deleteOne(firstToVisit);
-            return firstToVisit.getString("URL");
-        } else {
-            return null;
         }
     }
 
@@ -211,40 +93,6 @@ public class DBController {
         return pendingPages;
     }
 
-    public int checkVisitedThreshold() {
-        return (int) pageCollection.countDocuments();
-    }
-
-    public int checkTotalThreshold() {
-        return (int) toVisitCollection.countDocuments() + (int) pageCollection.countDocuments();
-    }
-
-    public void insertMany(List<Document> ls, String collectionName) {
-
-        InsertManyResult resultmany;
-
-        switch (collectionName) {
-            case "VisitedPages":
-                resultmany = pageCollection.insertMany(ls);
-                for (Map.Entry<Integer, BsonValue> entry : resultmany.getInsertedIds().entrySet()) {
-
-                    System.out.println(entry.getValue().asObjectId());
-                }
-                break;
-            case "Word":
-                resultmany = wordCollection.insertMany(ls);
-                for (Map.Entry<Integer, BsonValue> entry : resultmany.getInsertedIds().entrySet()) {
-                    System.out.println(entry.getValue().asObjectId());
-                }
-                break;
-            case "QueryHistory":
-                resultmany = queryHistoryCollection.insertMany(ls);
-                for (Map.Entry<Integer, BsonValue> entry : resultmany.getInsertedIds().entrySet()) {
-                    System.out.println(entry.getValue().asObjectId());
-                }
-                break;
-        }
-    }
 
     public List<Document> FindWordPages(String word) {
         Document projection = new Document("Pages", 1).append("_id", 0);
@@ -361,6 +209,90 @@ public class DBController {
      */
     public Document getPageMetaInfo(String url) {
         return pagesCollection.find(eq("url", url)).first();
+    }
+    /**
+     * Adds a visited page to the database with all its metadata
+     * @param url The normalized URL of the page
+     * @param title The page title
+     * @param content The page content
+     * @param fingerprint The content fingerprint (compact string)
+     */
+    public void addVisitedPage(String url, String title, String content, String fingerprint) {
+        Document doc = new Document()
+                .append("URL", url)
+                .append("title", title)
+                .append("content", content)
+                .append("CompactString", fingerprint)
+                .append("timestamp", new Date())
+                .append("isIndexed", false);
+        pageCollection.insertOne(doc);
+    }
+
+    /**
+     * Adds a URL to the pending pages collection
+     * @param url The URL to add
+     */
+    public void addPendingPage(String url) {
+        // First check if it's not already in pending or visited
+        if (toVisitCollection.countDocuments(eq("URL", url)) == 0 &&
+                pageCollection.countDocuments(eq("URL", url)) == 0) {
+            Document doc = new Document()
+                    .append("URL", url)
+                    .append("addedAt", new Date());
+            toVisitCollection.insertOne(doc);
+        }
+    }
+
+    /**
+     * Removes a URL from the pending pages collection
+     * @param url The URL to remove
+     */
+    public void removePendingPage(String url) {
+        toVisitCollection.deleteOne(eq("URL", url));
+    }
+
+    /**
+     * Checks if a URL exists in either visited or pending collections
+     * @param url The URL to check
+     * @return true if exists, false otherwise
+     */
+    public boolean urlExists(String url) {
+        return pageCollection.countDocuments(eq("URL", url)) > 0 ||
+                toVisitCollection.countDocuments(eq("URL", url)) > 0;
+    }
+
+    /**
+     * Gets the count of pending pages
+     * @return count of pending pages
+     */
+    public long getPendingPagesCount() {
+        return toVisitCollection.countDocuments();
+    }
+
+    /**
+     * Gets the count of visited pages
+     * @return count of visited pages
+     */
+    public long getVisitedPagesCount() {
+        return pageCollection.countDocuments();
+    }
+
+    /**
+     * Updates an existing visited page document
+     * @param url The URL of the page to update
+     * @param title The new title
+     * @param content The new content
+     * @param fingerprint The new fingerprint
+     */
+    public void updateVisitedPage(String url, String title, String content, String fingerprint) {
+        Bson filter = eq("URL", url);
+        Bson update = Updates.combine(
+                Updates.set("title", title),
+                Updates.set("content", content),
+                Updates.set("CompactString", fingerprint),
+                Updates.set("lastUpdated", new Date())
+        );
+        pageCollection.updateOne(filter, update);
     }
    /* public Set<ObjectId> searchByWords(String query) {
         String[] queryWords = query.split("\\s+");
