@@ -6,9 +6,12 @@ import com.example.searchapi.Query_Processor.*;
 
 import java.util.ArrayList;
 import java.util.List;
+//import org.example.*;
 
 @Service
 public class SearchService {
+  //  DBController dbController = new DBController();
+  //  dbController.initializeDatabaseCollection();
 
     public SearchResponse processDemoSearchQuery(String query) {
         // Generate 15 demo results
