@@ -9,6 +9,7 @@ import com.mongodb.client.MongoDatabase;
 
 import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.Projections;
+import com.mongodb.client.model.UpdateOptions;
 import com.mongodb.client.model.Updates;
 
 import com.mongodb.client.result.UpdateResult;
@@ -61,7 +62,62 @@ public class DBController {
 
         System.out.println("Connected to Database successfully");
     }
+    public ObjectId storePageMetaInfo(String title, String url, String content) {
+        Document doc = new Document()
+                .append("title", title)
+                .append("url", url)
+                .append("content", content)
+                .append("lastIndexed", new Date());
+        pageCollection.insertOne(doc);
+        return doc.getObjectId("_id");
+    }
 
+    public void storeTermInfo(String term, ObjectId pageId, String url,
+                              String title, int frequency, double tf,
+                              List<Integer> positions) {
+        // This now stores stemmed terms automatically
+        Document termDoc = new Document("term", term)
+                .append("df", 1)
+                .append("pages", Arrays.asList(
+                        new Document()
+                                .append("pageId", pageId)
+                                .append("url", url)
+                                .append("title", title)
+                                .append("frequency", frequency)
+                                .append("tf", tf)
+                                .append("positions", positions)
+                ));
+
+        termsCollection.updateOne(
+                eq("term", term),
+                new Document("$inc", new Document("df", 1))
+                        .append("$push", new Document("pages", termDoc.get("pages", List.class).get(0))),
+                new UpdateOptions().upsert(true)
+        );
+    }
+
+    public void updateTermIDF(String term, double idf) {
+        termsCollection.updateOne(
+                eq("term", term),
+                set("idf", idf)
+        );
+
+        // Update TF-IDF scores for all pages containing this term
+        termsCollection.updateMany(
+                eq("term", term),
+                new Document("$set", new Document("pages.$[].tfidf",
+                        new Document("$multiply", Arrays.asList("$pages.tf", idf))))
+        );
+    }
+
+    public long getTotalDocumentCount() {
+        return pageCollection.countDocuments();
+    }
+
+    public int getDocumentCountForTerm(String term) {
+        Document termDoc = termsCollection.find(eq("term", term)).first();
+        return termDoc != null ? termDoc.getInteger("df", 0) : 0;
+    }
     public void PrintCollectionData(String colName) {
         MongoCollection<Document> collections = database.getCollection(colName);
         try (MongoCursor<Document> cursor = collections.find()
@@ -163,19 +219,6 @@ public class DBController {
         List<Document> result = new ArrayList<>();
         iterable.into(result);
         return result;
-    }
-    /**
-     * Stores page metadata (title, URL, content) in the pages collection
-     * @param title Page title
-     * @param url Page URL
-     * @param normalized Normalized page content
-     */
-    public void storePageMetaInfo(String title, String url, String normalized) {
-        Document pageDoc = new Document()
-                .append("title", title)
-                .append("url", url)
-                .append("content", normalized);
-        pagesCollection.insertOne(pageDoc);
     }
 
     /**
