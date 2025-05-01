@@ -52,9 +52,9 @@ public class DBController {
         //String url = "mongodb+srv://abdallahsafan05:a123456789@cluster0.qyomt.mongodb.net/";
         MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017");
         database = mongoClient.getDatabase("SearchEngine");
-        pageCollection = database.getCollection("pages");
+        pagesCollection = database.getCollection("IndexedPages");
         pageCollection = database.getCollection("VisitedPages");
-        termsCollection = database.getCollection("terms");
+        termsCollection = database.getCollection("Terms");
       //  wordCollection = database.getCollection("Word");
       //  queryHistoryCollection = database.getCollection("QueryHistory");
         toVisitCollection = database.getCollection("PendingPages");

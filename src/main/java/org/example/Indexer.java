@@ -4,7 +4,6 @@ import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.select.Elements;
 import org.jsoup.nodes.Element;
-
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
@@ -41,14 +40,57 @@ public class Indexer {
     }
 
     /**
+     * Validates and normalizes a URL before processing
+     */
+    private String validateAndNormalizeUrl(String url) {
+        try {
+            // Skip invalid URLs
+            if (url == null || url.isEmpty() ||
+                    url.startsWith("javascript:") ||
+                    url.startsWith("mailto:") ||
+                    url.startsWith("#")) {
+                return null;
+            }
+
+            // Ensure URL has proper protocol
+            if (!url.startsWith("http://") && !url.startsWith("https://")) {
+                url = "https://" + url;
+            }
+
+            // Additional normalization
+            url = url.split("#")[0]  // Remove fragments
+                    .replaceAll("/+$", "");  // Remove trailing slashes
+
+            // Final validation
+            new java.net.URL(url);
+            return url;
+        } catch (Exception e) {
+            System.err.println("Invalid URL format: " + url);
+            return null;
+        }
+    }
+
+    /**
      * Fetches and processes a web page.
      */
     private void processPage(String url) {
         try {
-            // Fetch the page content
-            Document document = Jsoup.connect(url).get();
-            String title = document.title();
+         //   System.out.println("Processing page " + url);
+            // Validate and normalize URL first
+            String normalizedUrl = validateAndNormalizeUrl(url);
+          //  System.out.println("Processing page " + normalizedUrl);
+            if (normalizedUrl == null) {
+                System.err.println("Skipping invalid URL: " + url);
+                return;
+            }
 
+            // Fetch the page content with proper timeout and user agent
+            Document document = Jsoup.connect(normalizedUrl)
+                    .userAgent("Mozilla/5.0")
+                    .timeout(10000)
+                    .get();
+
+            String title = document.title();
             // Extract text from headers and paragraphs
             Elements elements = document.select("h1, h2, h3, p, li");
             StringBuilder contentBuilder = new StringBuilder();
@@ -62,12 +104,12 @@ public class Indexer {
             Map<String, Integer> termFrequency = computeTF(normalized);
 
             // Store processed data in the database
-            mongoDB.storePageMetaInfo(title, url, normalized);
-            mongoDB.storeTermFrequencies(termFrequency, url);
+            mongoDB.storePageMetaInfo(title, normalizedUrl, normalized);
+            mongoDB.storeTermFrequencies(termFrequency, normalizedUrl);
 
-            System.out.println("Processed: " + url);
+            System.out.println("Successfully indexed: " + normalizedUrl);
         } catch (IOException e) {
-            System.err.println("Failed to fetch or index URL: " + url);
+            System.err.println("Failed to fetch or index URL: " + url + " - " + e.getMessage());
         }
     }
 
@@ -76,12 +118,16 @@ public class Indexer {
      */
     private Map<String, Integer> computeTF(String text) {
         Map<String, Integer> tfMap = new HashMap<>();
-        String[] words = text.split("\\s+");
-
-        for (String word : words) {
-            tfMap.put(word, tfMap.getOrDefault(word, 0) + 1);
+        if (text == null || text.isEmpty()) {
+            return tfMap;
         }
 
+        String[] words = text.split("\\s+");
+        for (String word : words) {
+            if (word.length() > 2) {  // Ignore short words
+                tfMap.put(word.toLowerCase(), tfMap.getOrDefault(word.toLowerCase(), 0) + 1);
+            }
+        }
         return tfMap;
     }
 
@@ -92,9 +138,16 @@ public class Indexer {
         for (Future<?> future : futures) {
             try {
                 future.get();
-            } catch (InterruptedException | ExecutionException e) {
-                System.err.println("Error in indexing task: " + e.getMessage());
+            } catch (InterruptedException e) {
+                System.err.println("Indexing interrupted: " + e.getMessage());
+                Thread.currentThread().interrupt();
+            } catch (ExecutionException e) {
+                System.err.println("Error in indexing task: " + e.getCause().getMessage());
             }
         }
+    }
+
+    public static void main(String[] args) {
+        new Indexer();
     }
 }
