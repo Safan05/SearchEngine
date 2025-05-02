@@ -1,17 +1,22 @@
 package com.example.searchapi.model;
 
-import com.example.searchapi.Query_Processor.Document;
+
 import java.util.List;
+import org.bson.Document;
+
 
 public class SearchResponse {
-//    private List<SearchResult> results;
+
     private int total;
     private List<Document> results;
 
-    // Constructor
+
     public SearchResponse(List<Document> results, int total) {
         this.results = results;
         this.total = total;
+    }
+    public SearchResponse() {
+
     }
 
     // Getters and setters

@@ -5,8 +5,8 @@ function SearchResults({ results }) {
   console.log(results);
   return (
     <div className="search-results">
-      {results.map((result) => (
-        <div key={result.id} className="result-item">
+      {results.map((result,index) => (
+        <div key={index} className="result-item">
           <h3>
             <a href={result.url} target="_blank" rel="noopener noreferrer">
               {result.title}

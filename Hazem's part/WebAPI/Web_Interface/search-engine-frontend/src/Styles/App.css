@@ -232,7 +232,7 @@ body {
 }
 
 .pagination button:hover:not(:disabled) {
-  background-color: #f8f9fa;
+  background-color: #2f599e;
 }
 
 .pagination button:disabled {
