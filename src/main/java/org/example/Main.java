@@ -1,14 +1,6 @@
 package org.example;
-
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
-import org.jsoup.nodes.Document;
-import org.jsoup.nodes.Element;
-import org.jsoup.select.Elements;
-import org.jsoup.Jsoup;
 
 // main to run indexer or run crawler then indexer
 public class Main {

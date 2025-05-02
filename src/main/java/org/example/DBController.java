@@ -62,20 +62,37 @@ public class DBController {
 
         System.out.println("Connected to Database successfully");
     }
-    public ObjectId storePageMetaInfo(String title, String url, String content) {
-        Document doc = new Document()
+    public ObjectId storePageMetaInfo(String title, String url, String content,
+                                      boolean[] headers, ArrayList<String> links) {
+        // Create update document
+        Document updateDoc = new Document()
                 .append("title", title)
-                .append("url", url)
                 .append("content", content)
-                .append("lastIndexed", new Date());
-        pageCollection.insertOne(doc);
-        return doc.getObjectId("_id");
+                .append("headers", Arrays.asList(headers[0], headers[1], headers[2]))
+                .append("lastIndexed", new Date())
+                .append("links", links);
+
+        // Use upsert (update if exists, insert if not)
+        UpdateResult result = pageCollection.updateOne(
+                eq("url", url), // Filter by URL
+                new Document("$set", updateDoc), // Update fields
+                new UpdateOptions().upsert(true) // Create if doesn't exist
+        );
+
+        // Return the document ID
+        if (result.getUpsertedId() != null) {
+            // New document was inserted
+            return result.getUpsertedId().asObjectId().getValue();
+        } else {
+            // Existing document was updated - need to fetch the ID
+            Document existing = pageCollection.find(eq("url", url)).first();
+            return existing != null ? existing.getObjectId("_id") : null;
+        }
     }
 
     public void storeTermInfo(String term, ObjectId pageId, String url,
                               String title, int frequency, double tf,
-                              List<Integer> positions,String snippet) {
-        // This now stores stemmed terms automatically
+                              List<Integer> positions, boolean[] headers,String snippet) {
         Document termDoc = new Document("term", term)
                 .append("df", 1)
                 .append("pages", Arrays.asList(
@@ -86,6 +103,7 @@ public class DBController {
                                 .append("frequency", frequency)
                                 .append("tf", tf)
                                 .append("positions", positions)
+                                .append("headers", Arrays.asList(headers[0], headers[1], headers[2]))
                                 .append("snippet", snippet)
                 ));
 
@@ -96,7 +114,30 @@ public class DBController {
                 new UpdateOptions().upsert(true)
         );
     }
+    public List<String> getLinksFromPage(String url) {
+        Document pageDoc = pageCollection.find(eq("url", url)).first();
 
+        if (pageDoc == null) return Collections.emptyList();
+
+        List<String> links = new ArrayList<>();
+        Object linksObj = pageDoc.get("links");
+
+        if (linksObj instanceof List) {
+            for (Object item : (List<?>) linksObj) {
+                if (item instanceof String) {
+                    links.add((String) item);
+                }
+            }
+        }
+
+        return links;
+    }
+    public void updatePageRank(String url, double pageRank) {
+        pageCollection.updateOne(
+                eq("url", url),
+                set("pageRank", pageRank)
+        );
+    }
     public void updateTermIDF(String term, double idf) {
         termsCollection.updateOne(
                 eq("term", term),

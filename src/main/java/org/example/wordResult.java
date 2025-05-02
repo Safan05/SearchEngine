@@ -7,13 +7,13 @@ public class wordResult {
 
     List<String> Links = new ArrayList<String>();
     List<String> Titles = new ArrayList<String>();
-    List<String> Discreption = new ArrayList<String>();
+    List<String> Description = new ArrayList<String>();
     List<Double> TF = new ArrayList<Double>();
     List<List<Integer>> Positions = new ArrayList<List<Integer>>();
     List<List<Boolean>> Headers = new ArrayList<List<Boolean>>();
     List<Double> ranks = new ArrayList<Double>();
     Double idf;
-    public void addValue (String s)
+    public void addLinks (String s)
     {
 
         this.Links.add(s);
@@ -31,10 +31,10 @@ public class wordResult {
         this.Titles.add(s);
 
     }
-    public void addDisc (String s)
+    public void addDesc (String s)
     {
 
-        this.Discreption.add(s);
+        this.Description.add(s);
 
     }
     public void addTF (Double s)
@@ -57,7 +57,7 @@ public class wordResult {
 
     }
 
-    public void addIDF (Double d)
+    public void setIDF (Double d)
 
     {
         this.idf = d;
@@ -70,7 +70,7 @@ public class wordResult {
         return Titles;
     }
     public List<String> getDescriptions() {
-        return Discreption;
+        return Description;
     }
     public List<Double> getTF() {
         return TF;
