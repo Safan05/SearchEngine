@@ -52,7 +52,7 @@ public class Ranker {
 
                 // Track best PageRank
                 components.pageRank = Math.max(components.pageRank, result.getRanks().get(i));
-
+                components.snippets = result.getSnippets();
                 // Store metadata (use first occurrence)
                 if (components.title == null) {
                     components.title = result.getTitles().get(i);
@@ -90,8 +90,7 @@ public class Ranker {
         return finalScores;
     }
 
-    private List<RankerResults> prepareRankedResults(Map<String, Double> scores,
-                                                     Map<String, PageComponents> pageData) {
+    private List<RankerResults> prepareRankedResults(Map<String, Double> scores, Map<String, PageComponents> pageData) {
         return scores.entrySet().stream()
                 .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
                 .map(entry -> {
@@ -101,6 +100,7 @@ public class Ranker {
                     PageComponents comp = pageData.get(entry.getKey());
                     result.setTitle(comp.title);
                     result.setDescription(comp.description);
+                    result.setSnippet(comp.snippets);
                     return result;
                 })
                 .collect(Collectors.toList());
@@ -122,5 +122,6 @@ public class Ranker {
         double pageRank = 0;
         String title;
         String description;
+        List<String> snippets;
     }
 }

@@ -12,7 +12,7 @@ public class wordResult {
     List<List<Integer>> Positions = new ArrayList<List<Integer>>();
     List<List<Boolean>> Headers = new ArrayList<List<Boolean>>();
     List<Double> ranks = new ArrayList<Double>();
-    List<String> snippets;ayList<>(();)
+    List<String> snippets;
     Double idf;
     public void addLinks (String s)
     {
@@ -32,7 +32,14 @@ public class wordResult {
         this.Titles.add(s);
 
     }
-    <sStringic void addDesc (String s)
+
+    public void setSnippets(List<String> s){
+        this.snippets = s;
+    }
+
+    public List<String> getSnippets() {return  this.snippets;}
+
+    public void addDesc (String s)
     {
 
         this.Description.add(s);

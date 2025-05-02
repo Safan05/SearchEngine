@@ -119,6 +119,7 @@ public class SearchService {
                 wordresult.addTF(page.getDouble("tf"));
                 wordresult.addPosition(page.getList("positions",Integer.class));
                 wordresult.addHeaders(page.getList("headers", Boolean.class));
+                wordresult.setSnippets(page.getList("snippets",String.class));
             }
             wordResults.add(wordresult);
         }
@@ -219,17 +220,18 @@ public class SearchService {
 //            for (Document page : pages) {
             String url = doc.getLink();
             String title = doc.getTitle();
-            String snippet = doc.getDescription(); // Fetch text from URL
+//            String snippet = doc.getDescription(); // Fetch text from URL
             String term = doc.getTerm();
             String id = doc.getId();
-            if(snippet == null || snippet.isEmpty()) continue;
+            List<String> snippets = doc.getSnippets();
+            if(snippets == null || snippets.isEmpty()) continue;
 
 
             Map<String, Object> dictionary = new HashMap<>();
             dictionary.put("term", term);
             dictionary.put("url", url);
             dictionary.put("title", title);
-            dictionary.put("snippet", snippet);
+            dictionary.put("snippet", snippets.get(0));
             dictionary.put("id",id);
 
             Document result = new Document(dictionary);

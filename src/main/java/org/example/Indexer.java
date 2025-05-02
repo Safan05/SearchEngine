@@ -30,7 +30,7 @@ public class Indexer {
 
         // Retrieve visited URLs
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
-   //     System.out.println("Visited urls: " + visitedUrls);
+        //     System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
         executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
@@ -47,10 +47,10 @@ public class Indexer {
         waitForCompletion(futures);
 
         // Calculate PageRank scores
-    //    Map<String, Double> pageRanks = calculatePageRank();
+        //    Map<String, Double> pageRanks = calculatePageRank();
 
         // Store PageRank scores
-   //     storePageRanks(pageRanks);
+        //     storePageRanks(pageRanks);
         System.out.println("All Pages ranked.");
         // Calculate and store IDF values
         calculateAndStoreIDF();
@@ -201,6 +201,7 @@ public class Indexer {
             for (Map.Entry<String, Integer> entry : termData.termFrequency.entrySet()) {
                 String term = entry.getKey();
                 int frequency = entry.getValue();
+                //int idf = calculateAndStoreIDF();
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
                 List<String> snippets = getCenteredTermSnippets(term, rawText, 250);
