@@ -14,12 +14,11 @@ public class Indexer {
     private final DBController mongoDB;
     private final Set<String> visitedUrls;
     private final ExecutorService executor;
-    private final PorterStemmer stemmer;
+
     private final Map<String, Map<String, List<Integer>>> termPositions;
 
     public Indexer() {
         System.out.println("Indexer started.");
-        this.stemmer = new PorterStemmer();
         this.termPositions = new ConcurrentHashMap<>();
 
         // Initialize database connection
@@ -133,7 +132,7 @@ public class Indexer {
             for (int i = 0; i < words.length; i++) {
                 String word = words[i].toLowerCase();
                 if (word.length() > 2) {
-                    String stemmed = stemmer.stem(word); // Stem the word
+                    String stemmed = stemWord(word); // Stem the word
                     tfMap.put(stemmed, tfMap.getOrDefault(stemmed, 0) + 1);
                     positionsMap.computeIfAbsent(stemmed, k -> new ArrayList<>()).add(i);
                     totalTerms++;
@@ -144,6 +143,13 @@ public class Indexer {
         return new TermData(tfMap, positionsMap, totalTerms);
     }
 
+    public static String stemWord(String word) {
+        Stemmer stemmer = new Stemmer();
+        stemmer.add(word.toCharArray(), word.length());
+        stemmer.stem();
+        String stemmed = stemmer.toString();
+        return stemmed;
+    }
     private void waitForCompletion(List<Future<?>> futures) {
         for (Future<?> future : futures) {
             try {
