@@ -16,7 +16,7 @@ public class Indexer {
     private final ExecutorService executor;
 
     private final Map<String, Map<String, List<Integer>>> termPositions;
-    private String getTermSnippet(String term, String text, int snippetLength) {
+    private String getCenteredTermSnippet(String term, String text, int snippetLength) {
         if (text == null || term == null || text.isEmpty() || term.isEmpty()) {
             return "";
         }
@@ -26,18 +26,30 @@ public class Indexer {
             String word = words[i].toLowerCase();
             String stemmed = stemWord(word);
             if (stemmed.equals(term)) {
-                // Get the snippet starting at this word
+                // Calculate positions to center the term
+                int halfContext = snippetLength / 2;
+                int start = Math.max(0, i - halfContext);
+                int end = Math.min(words.length, start + snippetLength);
+
+                // Adjust if we're near the end of text
+                if (end - start < snippetLength) {
+                    start = Math.max(0, end - snippetLength);
+                }
+
                 StringBuilder snippet = new StringBuilder();
-                int end = Math.min(i + snippetLength, words.length);
-                for (int j = i; j < end; j++) {
+                for (int j = start; j < end; j++) {
                     String currentWord = words[j];
-                    // Highlight the matching term
                     if (stemWord(currentWord.toLowerCase()).equals(term)) {
                         snippet.append("<b>").append(currentWord).append("</b> ");
                     } else {
                         snippet.append(currentWord).append(" ");
                     }
                 }
+
+                // Add ellipsis if not at beginning/end
+                if (start > 0) snippet.insert(0, "... ");
+                if (end < words.length) snippet.append("...");
+
                 return snippet.toString().trim();
             }
         }
@@ -115,7 +127,7 @@ public class Indexer {
             for (Element element : elements) {
                 contentBuilder.append(element.text()).append(" ");
             }
-
+            String text= document.body().text();
             String rawText = contentBuilder.toString();
             String normalized = TextProcessor.normalize(rawText);
             TermData termData = computeTFWithPositions(normalized);
@@ -127,7 +139,7 @@ public class Indexer {
                 int frequency = entry.getValue();
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
-                String snippet = getTermSnippet(term, normalized, 50);
+                String snippet = getCenteredTermSnippet(term, rawText, 50);
                 mongoDB.storeTermInfo(
                         term,
                         pageId,
