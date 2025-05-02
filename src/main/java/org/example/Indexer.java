@@ -30,26 +30,27 @@ public class Indexer {
 
         // Retrieve visited URLs
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
-
+   //     System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
         executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
         // First pass: Build link graph
-        buildLinkGraph();
+        //buildLinkGraph();
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
         for (String url : visitedUrls) {
+            System.out.println("Visited url: " + url);
             futures.add(executor.submit(() -> processPage(url)));
         }
         System.out.println("All Pages processed.");
         waitForCompletion(futures);
 
         // Calculate PageRank scores
-        Map<String, Double> pageRanks = calculatePageRank();
+    //    Map<String, Double> pageRanks = calculatePageRank();
 
         // Store PageRank scores
-        storePageRanks(pageRanks);
+   //     storePageRanks(pageRanks);
         System.out.println("All Pages ranked.");
         // Calculate and store IDF values
         calculateAndStoreIDF();
@@ -202,7 +203,7 @@ public class Indexer {
                 int frequency = entry.getValue();
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
-                String snippet = getCenteredTermSnippet(term, rawText, 50);
+                List<String> snippets = getCenteredTermSnippets(term, rawText, 250);
                 mongoDB.storeTermInfo(
                         term,
                         pageId,
@@ -212,7 +213,7 @@ public class Indexer {
                         tf,
                         positions,
                         headers,
-                        snippet
+                        snippets
                 );
 
                 termPositions.computeIfAbsent(term, k -> new ConcurrentHashMap<>())
@@ -274,9 +275,11 @@ public class Indexer {
             this.totalTerms = totalTerms;
         }
     }
-    private String getCenteredTermSnippet(String term, String text, int snippetLength) {
+    private List<String> getCenteredTermSnippets(String term, String text, int snippetLength) {
+        List<String> snippets = new ArrayList<>();
+
         if (text == null || term == null || text.isEmpty() || term.isEmpty()) {
-            return "";
+            return snippets;
         }
 
         String[] words = text.split("\\s+");
@@ -308,10 +311,10 @@ public class Indexer {
                 if (start > 0) snippet.insert(0, "... ");
                 if (end < words.length) snippet.append("...");
 
-                return snippet.toString().trim();
+                snippets.add(snippet.toString().trim());
             }
         }
-        return "";
+        return snippets;
     }
     public static String stemWord(String word) {
         Stemmer stemmer = new Stemmer();
