@@ -35,7 +35,7 @@ public class Indexer {
         executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
 
         // First pass: Build link graph
-        //buildLinkGraph();
+        buildLinkGraph();
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
@@ -47,10 +47,10 @@ public class Indexer {
         waitForCompletion(futures);
 
         // Calculate PageRank scores
-        //    Map<String, Double> pageRanks = calculatePageRank();
+          Map<String, Double> pageRanks = calculatePageRank();
 
         // Store PageRank scores
-        //     storePageRanks(pageRanks);
+          storePageRanks(pageRanks);
         System.out.println("All Pages ranked.");
         // Calculate and store IDF values
         calculateAndStoreIDF();
@@ -61,12 +61,16 @@ public class Indexer {
     private void buildLinkGraph() {
         for (String url : visitedUrls) {
             List<String> links = mongoDB.getLinksFromPage(url);
-            if (!links.isEmpty()) {
-                linkGraph.put(url, new HashSet<>(links));
-                for (String link : links) {
-                    reverseLinkGraph.computeIfAbsent(link, k -> new HashSet<>()).add(url);
-                }
+            // Ensure all pages are in the linkGraph
+            linkGraph.putIfAbsent(url, new HashSet<>());
+
+            for (String link : links) {
+                linkGraph.get(url).add(link);
+                reverseLinkGraph.computeIfAbsent(link, k -> new HashSet<>()).add(url);
             }
+
+            // Ensure reverseLinkGraph contains all nodes (even those with no incoming links)
+            reverseLinkGraph.putIfAbsent(url, reverseLinkGraph.getOrDefault(url, new HashSet<>()));
         }
     }
 
@@ -76,59 +80,58 @@ public class Indexer {
         final double CONVERGENCE_THRESHOLD = 0.0001;
 
         Map<String, Double> pageRanks = new HashMap<>();
+        Map<String, Double> newPageRanks = new HashMap<>();
         int N = visitedUrls.size();
         double initialRank = 1.0 / N;
 
-        // Initialize all pages with equal rank
+        // Initialize ranks
         for (String url : visitedUrls) {
             pageRanks.put(url, initialRank);
         }
 
-        // Iterative PageRank calculation
-        for (int i = 0; i < MAX_ITERATIONS; i++) {
-            Map<String, Double> newRanks = new HashMap<>();
-            double danglingRank = 0.0;
+        for (int iter = 0; iter < MAX_ITERATIONS; iter++) {
+            double danglingSum = 0.0;
 
-            // Calculate dangling node contribution
+            // Calculate sum of dangling node ranks
             for (String url : visitedUrls) {
-                if (!linkGraph.containsKey(url) || linkGraph.get(url).isEmpty()) {
-                    danglingRank += pageRanks.get(url);
+                if (linkGraph.getOrDefault(url, Collections.emptySet()).isEmpty()) {
+                    danglingSum += pageRanks.get(url);
                 }
             }
-            danglingRank /= N;
 
-            // Calculate new ranks
+            // Distribute dangling sum to all nodes
+            double danglingFactor = DAMPING_FACTOR * danglingSum / N;
+
             for (String url : visitedUrls) {
                 double sum = 0.0;
 
-                // Sum contributions from incoming links
-                if (reverseLinkGraph.containsKey(url)) {
-                    for (String incoming : reverseLinkGraph.get(url)) {
-                        int outDegree = linkGraph.get(incoming).size();
-                        if (outDegree > 0) {
-                            sum += pageRanks.get(incoming) / outDegree;
-                        }
+                // Sum contributions from pages linking to this URL
+                for (String incoming : reverseLinkGraph.getOrDefault(url, Collections.emptySet())) {
+                    int outDegree = linkGraph.getOrDefault(incoming, Collections.emptySet()).size();
+                    if (outDegree > 0) {
+                        sum += pageRanks.get(incoming) / outDegree;
                     }
                 }
 
-                // Apply PageRank formula
-                double newRank = (1 - DAMPING_FACTOR) / N +
-                        DAMPING_FACTOR * (sum + danglingRank);
-                newRanks.put(url, newRank);
+                // Calculate new rank
+                double newRank = (1.0 - DAMPING_FACTOR) / N + DAMPING_FACTOR * sum + danglingFactor;
+                newPageRanks.put(url, newRank);
             }
 
             // Check for convergence
             boolean converged = true;
             for (String url : visitedUrls) {
-                if (Math.abs(newRanks.get(url) - pageRanks.get(url)) > CONVERGENCE_THRESHOLD) {
+                if (Math.abs(newPageRanks.get(url) - pageRanks.get(url)) > CONVERGENCE_THRESHOLD) {
                     converged = false;
                     break;
                 }
             }
 
-            pageRanks = newRanks;
+            // Update ranks for next iteration
+            pageRanks = new HashMap<>(newPageRanks);
+
             if (converged) {
-                System.out.println("PageRank converged after " + (i+1) + " iterations");
+                System.out.println("PageRank converged after " + (iter + 1) + " iterations");
                 break;
             }
         }

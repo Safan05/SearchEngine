@@ -54,23 +54,24 @@ public class DBController {
                 .append("content", content)
                 .append("headers", Arrays.asList(headers[0], headers[1], headers[2]))
                 .append("lastIndexed", new Date())
-                .append("links", links);
+                .append("links", links)
+                .append("isIndexed", true); // Set isIndexed to true
 
-        // Use upsert (update if exists, insert if not)
+        // Update existing document only (no upsert)
         UpdateResult result = pageCollection.updateOne(
-                eq("url", url), // Filter by URL
-                new Document("$set", updateDoc), // Update fields
-                new UpdateOptions().upsert(true) // Create if doesn't exist
+                eq("URL", url), // Filter by URL
+                new Document("$set", updateDoc) // Update fields
         );
 
-        // Return the document ID
-        if (result.getUpsertedId() != null) {
-            // New document was inserted
-            return result.getUpsertedId().asObjectId().getValue();
-        } else {
-            // Existing document was updated - need to fetch the ID
+        // Check if a document was updated
+        if (result.getMatchedCount() > 0) {
+            // Document was updated, retrieve its ID
             Document existing = pageCollection.find(eq("url", url)).first();
             return existing != null ? existing.getObjectId("_id") : null;
+        } else {
+            // No document found, return null
+            System.out.println("No document found to update for URL: " + url);
+            return null;
         }
     }
 
@@ -118,7 +119,7 @@ public class DBController {
     }
     public void updatePageRank(String url, double pageRank) {
         pageCollection.updateOne(
-                eq("url", url),
+                eq("URL", url),
                 set("pageRank", pageRank)
         );
     }
@@ -182,4 +183,6 @@ public class DBController {
         mongoClient.close();
         System.out.println("Connection with MongoDB is closed");
     }
+
+
 }
