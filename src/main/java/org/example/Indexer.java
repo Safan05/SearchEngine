@@ -16,7 +16,33 @@ public class Indexer {
     private final ExecutorService executor;
 
     private final Map<String, Map<String, List<Integer>>> termPositions;
+    private String getTermSnippet(String term, String text, int snippetLength) {
+        if (text == null || term == null || text.isEmpty() || term.isEmpty()) {
+            return "";
+        }
 
+        String[] words = text.split("\\s+");
+        for (int i = 0; i < words.length; i++) {
+            String word = words[i].toLowerCase();
+            String stemmed = stemWord(word);
+            if (stemmed.equals(term)) {
+                // Get the snippet starting at this word
+                StringBuilder snippet = new StringBuilder();
+                int end = Math.min(i + snippetLength, words.length);
+                for (int j = i; j < end; j++) {
+                    String currentWord = words[j];
+                    // Highlight the matching term
+                    if (stemWord(currentWord.toLowerCase()).equals(term)) {
+                        snippet.append("<b>").append(currentWord).append("</b> ");
+                    } else {
+                        snippet.append(currentWord).append(" ");
+                    }
+                }
+                return snippet.toString().trim();
+            }
+        }
+        return "";
+    }
     public Indexer() {
         System.out.println("Indexer started.");
         this.termPositions = new ConcurrentHashMap<>();
@@ -101,7 +127,7 @@ public class Indexer {
                 int frequency = entry.getValue();
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
-
+                String snippet = getTermSnippet(term, normalized, 50);
                 mongoDB.storeTermInfo(
                         term,
                         pageId,
@@ -109,7 +135,8 @@ public class Indexer {
                         title,
                         frequency,
                         tf,
-                        positions
+                        positions,
+                        snippet
                 );
 
                 termPositions.computeIfAbsent(term, k -> new ConcurrentHashMap<>())

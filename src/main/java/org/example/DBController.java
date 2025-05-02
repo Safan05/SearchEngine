@@ -74,7 +74,7 @@ public class DBController {
 
     public void storeTermInfo(String term, ObjectId pageId, String url,
                               String title, int frequency, double tf,
-                              List<Integer> positions) {
+                              List<Integer> positions,String snippet) {
         // This now stores stemmed terms automatically
         Document termDoc = new Document("term", term)
                 .append("df", 1)
@@ -86,6 +86,7 @@ public class DBController {
                                 .append("frequency", frequency)
                                 .append("tf", tf)
                                 .append("positions", positions)
+                                .append("snippet", snippet)
                 ));
 
         termsCollection.updateOne(
