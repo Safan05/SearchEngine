@@ -183,6 +183,15 @@ public class DBController {
         mongoClient.close();
         System.out.println("Connection with MongoDB is closed");
     }
+    public boolean isPageIndexed(String normalizedUrl) {
+        Document doc = pageCollection.find(eq("URL", normalizedUrl)).first();
+        if (doc == null) {
+            return false;
+        }
+        Boolean isIndexed = doc.getBoolean("isIndexed");
+        return isIndexed != null && isIndexed;
+    }
+
 
 
 }

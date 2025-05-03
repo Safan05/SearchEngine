@@ -32,22 +32,20 @@ public class Indexer {
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
         //     System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
-        executor = Executors.newFixedThreadPool(5);
+        executor = Executors.newFixedThreadPool(20);
 
 
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
         for (String url : visitedUrls) {
-            System.out.println("Visited url: " + url);
             futures.add(executor.submit(() -> processPage(url)));
         }
-        System.out.println("All Pages processed.");
         waitForCompletion(futures);
+        System.out.println("All Pages processed.");
+
         // First pass: Build link graph
         buildLinkGraph();
-        System.out.println(linkGraph);
-        System.out.println(reverseLinkGraph);
         // Calculate PageRank scores
           Map<String, Double> pageRanks = calculatePageRank();
 
@@ -58,6 +56,17 @@ public class Indexer {
         calculateAndStoreIDF();
 
         executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt(); // Preserve interrupt status
+        }
+
+
+        System.out.println("Indexer finished.");
     }
 
     private void buildLinkGraph() {
@@ -65,7 +74,6 @@ public class Indexer {
             String normalizedUrl = validateAndNormalizeUrl(url);
             if (normalizedUrl == null) continue;
             List<String> links = mongoDB.getLinksFromPage(normalizedUrl);
-            System.out.println(links);
             linkGraph.putIfAbsent(normalizedUrl, new HashSet<>());
 
             for (String link : links) {
@@ -163,9 +171,14 @@ public class Indexer {
 
     private void processPage(String url) {
         try {
+            String threadInfo = "Thread-" + Thread.currentThread().getId();
             String normalizedUrl = validateAndNormalizeUrl(url);
             if (normalizedUrl == null) return;
-
+            if (mongoDB.isPageIndexed(normalizedUrl)) {
+                System.out.println("Skipping already indexed URL: " + normalizedUrl);
+                return;
+            }
+            System.out.println(threadInfo + " - Indexed: " + normalizedUrl);
             Document document = Jsoup.connect(normalizedUrl)
                     .userAgent("Mozilla/5.0")
                     .timeout(10000)
@@ -231,7 +244,7 @@ public class Indexer {
                         .put(normalizedUrl, positions);
             }
 
-            System.out.println("Indexed: " + normalizedUrl);
+            //System.out.println("Indexed: " + normalizedUrl);
         } catch (IOException e) {
             System.err.println("Failed to index URL: " + url + " - " + e.getMessage());
         }
@@ -351,7 +364,7 @@ public class Indexer {
             new java.net.URL(url);
             return url;
         } catch (Exception e) {
-            System.err.println("Invalid URL format: " + url);
+            //System.err.println("Invalid URL format: " + url);
             return null;
         }
     }
