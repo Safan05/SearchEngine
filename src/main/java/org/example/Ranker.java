@@ -46,13 +46,14 @@ public class Ranker {
 
                 // Track title matches
                 String title = result.getTitles().get(i).toLowerCase();
-                components.titleMatches += queryWords.stream()
-                        .filter(word -> title.contains(word.toLowerCase()))
-                        .count();
+                components.titleMatches += queryWords.stream().filter(word -> title.contains(word.toLowerCase())).count();
 
+                System.out.println(pageData);
+                System.out.println(result.getRanks());
                 // Track best PageRank
                 components.pageRank = Math.max(components.pageRank, result.getRanks().get(i));
                 components.snippets = result.getSnippets();
+
                 // Store metadata (use first occurrence)
                 if (components.title == null) {
                     components.title = result.getTitles().get(i);
@@ -60,7 +61,6 @@ public class Ranker {
                 }
             }
         }
-
         return pageData;
     }
 

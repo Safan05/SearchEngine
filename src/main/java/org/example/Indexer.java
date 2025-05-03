@@ -32,10 +32,9 @@ public class Indexer {
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
         //     System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
-        executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+        executor = Executors.newFixedThreadPool(5);
 
-        // First pass: Build link graph
-        buildLinkGraph();
+
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
@@ -45,7 +44,10 @@ public class Indexer {
         }
         System.out.println("All Pages processed.");
         waitForCompletion(futures);
-
+        // First pass: Build link graph
+        buildLinkGraph();
+        System.out.println(linkGraph);
+        System.out.println(reverseLinkGraph);
         // Calculate PageRank scores
           Map<String, Double> pageRanks = calculatePageRank();
 
@@ -60,19 +62,24 @@ public class Indexer {
 
     private void buildLinkGraph() {
         for (String url : visitedUrls) {
-            List<String> links = mongoDB.getLinksFromPage(url);
-            // Ensure all pages are in the linkGraph
-            linkGraph.putIfAbsent(url, new HashSet<>());
+            String normalizedUrl = validateAndNormalizeUrl(url);
+            if (normalizedUrl == null) continue;
+            List<String> links = mongoDB.getLinksFromPage(normalizedUrl);
+            System.out.println(links);
+            linkGraph.putIfAbsent(normalizedUrl, new HashSet<>());
 
             for (String link : links) {
-                linkGraph.get(url).add(link);
-                reverseLinkGraph.computeIfAbsent(link, k -> new HashSet<>()).add(url);
+                String normalizedLink = validateAndNormalizeUrl(link);
+                if (normalizedLink != null && visitedUrls.contains(normalizedLink)) {
+                    linkGraph.get(normalizedUrl).add(normalizedLink);
+                    reverseLinkGraph.computeIfAbsent(normalizedLink, k -> new HashSet<>()).add(normalizedUrl);
+                }
             }
 
-            // Ensure reverseLinkGraph contains all nodes (even those with no incoming links)
-            reverseLinkGraph.putIfAbsent(url, reverseLinkGraph.getOrDefault(url, new HashSet<>()));
+            reverseLinkGraph.putIfAbsent(normalizedUrl, reverseLinkGraph.getOrDefault(normalizedUrl, new HashSet<>()));
         }
     }
+
 
     private Map<String, Double> calculatePageRank() {
         final double DAMPING_FACTOR = 0.85;

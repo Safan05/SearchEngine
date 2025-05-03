@@ -30,6 +30,7 @@ import org.jsoup.Jsoup;
 
 import java.io.IOException;
 
+import static com.mongodb.client.model.Filters.eq;
 
 
 @Service
@@ -40,6 +41,7 @@ public class SearchService {
     private final MongoClient mongoClient;
     private final MongoDatabase database;
     private final MongoCollection<Document> collection;
+    private final MongoCollection<Document> Pages;
     private List<Document> documents;
     private List<Document> ranked_documents;
     private List<RankerResults> ranker_results;
@@ -49,7 +51,7 @@ public class SearchService {
             this.mongoClient = MongoClients.create("mongodb://localhost:27017");
             this.database = mongoClient.getDatabase("SearchEngine");
             this.collection = database.getCollection("Terms");
-
+            this.Pages = database.getCollection("VisitedPages");
             // Validate connection
             if (database.listCollectionNames().first() == null) {
                 throw new RuntimeException("Failed to list collections - database connection issue");
@@ -113,13 +115,20 @@ public class SearchService {
             wordresult.setIDF(document.getDouble("idf"));
             List<Document> pages = document.getList("pages", Document.class);
             for (Document page : pages) {
-                wordresult.addLinks(page.getString("url"));
+                String url = page.getString("url");
+                wordresult.addLinks(url);
                 wordresult.addDesc(page.getString("snippet"));
                 wordresult.addTitle(page.getString("title"));
                 wordresult.addTF(page.getDouble("tf"));
                 wordresult.addPosition(page.getList("positions",Integer.class));
                 wordresult.addHeaders(page.getList("headers", Boolean.class));
                 wordresult.setSnippets(page.getList("snippets",String.class));
+                double rank=0;
+               // System.out.println(url);
+               // System.out.println("THE PAGE IS"+Pages.find(eq("URL",url)).first());
+                if (Pages.find(eq("URL",url)).first()!= null)
+                    rank = Pages.find(eq("URL",url)).first().getDouble("pageRank");
+                wordresult.addranks(rank);
             }
             wordResults.add(wordresult);
         }

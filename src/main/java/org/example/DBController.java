@@ -100,7 +100,7 @@ public class DBController {
         );
     }
     public List<String> getLinksFromPage(String url) {
-        Document pageDoc = pageCollection.find(eq("url", url)).first();
+        Document pageDoc = pageCollection.find(eq("URL", url)).first();
 
         if (pageDoc == null) return Collections.emptyList();
 
