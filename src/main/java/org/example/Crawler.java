@@ -24,6 +24,7 @@ public class Crawler implements Runnable {
     private static ExecutorService executorService;
     private static volatile boolean running = true;
 
+
     static {
         mongoDB.initializeDatabaseConnection();
         mongoDB.resetVisitedPages();

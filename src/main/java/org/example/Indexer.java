@@ -170,15 +170,14 @@ public class Indexer {
     }
 
     private void processPage(String url) {
+        String threadInfo = "Thread-" + Thread.currentThread().getId();
         try {
-            String threadInfo = "Thread-" + Thread.currentThread().getId();
             String normalizedUrl = validateAndNormalizeUrl(url);
             if (normalizedUrl == null) return;
             if (mongoDB.isPageIndexed(normalizedUrl)) {
                 System.out.println("Skipping already indexed URL: " + normalizedUrl);
                 return;
             }
-            System.out.println(threadInfo + " - Indexed: " + normalizedUrl);
             Document document = Jsoup.connect(normalizedUrl)
                     .userAgent("Mozilla/5.0")
                     .timeout(10000)
@@ -243,10 +242,10 @@ public class Indexer {
                 termPositions.computeIfAbsent(term, k -> new ConcurrentHashMap<>())
                         .put(normalizedUrl, positions);
             }
-
+            System.out.println(threadInfo + " - Indexed: " + normalizedUrl);
             //System.out.println("Indexed: " + normalizedUrl);
         } catch (IOException e) {
-            System.err.println("Failed to index URL: " + url + " - " + e.getMessage());
+            System.err.println(threadInfo +" - Failed to index URL: " + url + " - " + e.getMessage());
         }
     }
 

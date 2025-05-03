@@ -9,7 +9,7 @@ import com.mongodb.client.result.DeleteResult;
 
 import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.UpdateOptions;
-
+import com.mongodb.client.model.IndexOptions;
 import com.mongodb.client.result.UpdateResult;
 import org.bson.Document;
 import org.bson.types.ObjectId;
@@ -43,7 +43,10 @@ public class DBController {
         pagesCollection = database.getCollection("IndexedPages");
         pageCollection = database.getCollection("VisitedPages");
         termsCollection = database.getCollection("Terms");
-
+        termsCollection.createIndex(
+                new Document("term", 1),
+                new IndexOptions().unique(true)
+        );
         System.out.println("Connected to Database successfully");
     }
     public ObjectId storePageMetaInfo(String title, String url, String content,
@@ -77,27 +80,47 @@ public class DBController {
 
     public void storeTermInfo(String term, ObjectId pageId, String url,
                               String title, int frequency, double tf,
-                              List<Integer> positions, boolean[] headers,List<String> snippets) {
-        Document termDoc = new Document("term", term)
-                .append("df", 1)
-                .append("pages", Arrays.asList(
-                        new Document()
-                                .append("pageId", pageId)
-                                .append("url", url)
-                                .append("title", title)
-                                .append("frequency", frequency)
-                                .append("tf", tf)
-                                .append("positions", positions)
-                                .append("headers", Arrays.asList(headers[0], headers[1], headers[2]))
-                                .append("snippets", snippets)
-                ));
+                              List<Integer> positions, boolean[] headers, List<String> snippets) {
+        if (term == null || term.isEmpty()) {
+            //System.out.println("Skipping empty term for URL: " + url);
+            return;
+        }
+        try {
+            // Create the page info document
+            Document pageInfo = new Document()
+                    .append("pageId", pageId)
+                    .append("url", url)
+                    .append("title", title)
+                    .append("frequency", frequency)
+                    .append("tf", tf)
+                    .append("positions", positions)
+                    .append("headers", Arrays.asList(headers[0], headers[1], headers[2]))
+                    .append("snippets", snippets);
 
-        termsCollection.updateOne(
-                eq("term", term),
-                new Document("$inc", new Document("df", 1))
-                        .append("$push", new Document("pages", termDoc.get("pages", List.class).get(0))),
-                new UpdateOptions().upsert(true)
-        );
+            // Create update operation
+            Document update = new Document()
+                    .append("$inc", new Document("df", 1)) // Increment document frequency
+                    .append("$setOnInsert", new Document() // Only set on insert
+                            .append("term", term)
+                            .append("idf", 0.0)) // Initialize IDF
+                    .append("$push", new Document("pages", pageInfo)); // Add page info
+
+            // Perform atomic update with upsert
+            UpdateResult result = termsCollection.updateOne(
+                    eq("term", term),
+                    update,
+                    new UpdateOptions().upsert(true)
+            );
+        } catch (com.mongodb.MongoWriteException e) {
+            if (e.getError().getCode() == 11000) { // Duplicate key error
+                // Retry the operation if we hit a race condition
+                storeTermInfo(term, pageId, url, title, frequency, tf, positions, headers, snippets);
+            } else {
+                System.err.println("Error storing term info: " + e.getMessage());
+            }
+        } catch (Exception e) {
+            System.err.println("Unexpected error storing term info: " + e.getMessage());
+        }
     }
     public List<String> getLinksFromPage(String url) {
         Document pageDoc = pageCollection.find(eq("URL", url)).first();
