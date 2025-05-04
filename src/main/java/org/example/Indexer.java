@@ -180,7 +180,6 @@ public class Indexer {
 
     private void processPage(String url) {
         String threadInfo = "Thread-" + Thread.currentThread().getName();
-        try {
             String normalizedUrl = validateAndNormalizeUrl(url);
 
             if (normalizedUrl == null) return;
@@ -270,6 +269,7 @@ public class Indexer {
             //System.out.println("Indexed: " + normalizedUrl);
 
     }
+
 
     public static String stemWord(String word) {
         Stemmer stemmer = new Stemmer();
