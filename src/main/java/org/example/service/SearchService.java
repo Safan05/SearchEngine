@@ -90,14 +90,14 @@ public class SearchService {
         }
         else {
             // with ranking
-//        List<String> Query_Words = Arrays.asList(query.toLowerCase().split("\\s+"));
-//        this.ranker_results = rank_documents(results,Query_Words);
-//        List<Document> finalResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
+        List<String> Query_Words = Arrays.asList(query.toLowerCase().split("\\s+"));
+        this.ranker_results = rank_documents(results,Query_Words);
+        finalResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
 
 
             // without ranking
 
-            finalResults = new ArrayList<>(convertDocumentsToResultsWithoutRanking(results));
+         //   finalResults = new ArrayList<>(convertDocumentsToResultsWithoutRanking(results));
         }
 
         List<Document> finalFilteredResults = filterPages(finalResults);
