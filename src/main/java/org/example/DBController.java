@@ -272,5 +272,12 @@ public class DBController {
                 .first();
         return termDoc != null && termDoc.getBoolean("isFull", false);
     }
-
+    public Document getPageByUrl(String url) {
+        try {
+            return pageCollection.find(eq("URL", url)).first();
+        } catch (Exception e) {
+            System.err.println("Error retrieving page for URL: " + url + " - " + e.getMessage());
+            return null;
+        }
+    }
 }

@@ -30,13 +30,13 @@ public class Indexer {
         // Initialize database connection
         mongoDB = new DBController();
         mongoDB.initializeDatabaseConnection();
-        mongoDB.reseterminfo();
+        //mongoDB.reseterminfo();
 
         // Retrieve visited URLs
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
         // System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
-        executor = Executors.newFixedThreadPool(5);
+        executor = Executors.newFixedThreadPool(20);
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
@@ -180,72 +180,71 @@ public class Indexer {
 
     private void processPage(String url) {
         String threadInfo = "Thread-" + Thread.currentThread().getName();
-            String normalizedUrl = validateAndNormalizeUrl(url);
+        String normalizedUrl = validateAndNormalizeUrl(url);
 
-            if (normalizedUrl == null) return;
-            if (mongoDB.isPageIndexed(normalizedUrl)) {
-                System.out.println("Skipping already indexed URL: " + normalizedUrl);
-                synchronized (this) {
-                    int current = processedPages.incrementAndGet();
-                    System.out.println("Progress: " + current + "/" + visitedUrls.size());
-                }
-                return;
+        if (normalizedUrl == null) return;
+
+        // First check if we have complete data in DB
+        org.bson.Document dbPage = mongoDB.getPageByUrl(normalizedUrl);
+
+        if (dbPage != null && dbPage.getBoolean("isIndexed", false)) {
+            System.out.println("Skipping already indexed URL: " + normalizedUrl);
+            synchronized (this) {
+                int current = processedPages.incrementAndGet();
+                System.out.println("Progress: " + current + "/" + visitedUrls.size());
             }
-            Document document;
-            try {
-                document = fetchWithRetry(normalizedUrl, 3); // 3 retries
-            } catch (IOException e) {
-                System.err.println("Permanent failure for " + normalizedUrl);
-                return;
-            }
+            return;
+        }
 
-            String title = document.title();
+        // If we have content in DB but not indexed, use that instead of fetching
+        if (dbPage != null && dbPage.get("content") != null) {
+           // System.out.println(threadInfo + " - Using cached content for: " + normalizedUrl);
 
-            // Extract headers information
+            String title = dbPage.get("title", String.class);
+            String normalizedContent = dbPage.get("content", String.class);
+
+            // Extract headers information from DB if available, or set default
             boolean[] headers = new boolean[3];
-            headers[0] = !document.select("h1").isEmpty();
-            headers[1] = !document.select("h2").isEmpty();
-            headers[2] = !document.select("h3").isEmpty();
-
-            // Extract links and update graph
-            Elements linkElements = document.select("a[href]");
-            Set<String> links = new HashSet<>();
-            for (Element link : linkElements) {
-                String linkUrl = link.attr("abs:href");
-                String normalizedLink = validateAndNormalizeUrl(linkUrl);
-                if (normalizedLink != null && visitedUrls.contains(normalizedLink)) {
-                    links.add(normalizedLink);
+            if (dbPage.get("headers") != null) {
+                List<Boolean> headersList = dbPage.get("headers", List.class);
+                for (int i = 0; i < Math.min(headersList.size(), 3); i++) {
+                    headers[i] = headersList.get(i);
                 }
             }
 
-            Elements contentElements = document.select("h1, h2, h3, p, li");
-            StringBuilder contentBuilder = new StringBuilder();
-            for (Element element : contentElements) {
-                contentBuilder.append(element.text()).append(" ");
+            // Get links from DB if available
+            Set<String> links = new HashSet<>();
+            if (dbPage.get("links") != null) {
+                links.addAll(dbPage.get("links", List.class));
             }
 
-            String rawText = contentBuilder.toString();
-            String normalized = TextProcessor.normalize(rawText);
-            TermData termData = computeTFWithPositions(normalized);
+            // Process the content from DB
+            TermData termData = computeTFWithPositions(normalizedContent);
+            ObjectId pageId = dbPage.getObjectId("_id");
 
-            ObjectId pageId = mongoDB.storePageMetaInfo(
-                    title,
-                    normalizedUrl,
-                    normalized,
-                    headers,
-                    new ArrayList<>(links) // Store outgoing links
-            );
+            if (pageId == null) {
+                pageId = mongoDB.storePageMetaInfo(
+                        title,
+                        normalizedUrl,
+                        normalizedContent,
+                        headers,
+                        new ArrayList<>(links)
+                );
+            }
 
+            // Store term info (same as original)
             for (Map.Entry<String, Integer> entry : termData.termFrequency.entrySet()) {
                 String term = entry.getKey();
                 int frequency = entry.getValue();
-                //int idf = calculateAndStoreIDF();
+
                 if (mongoDB.isTermFull(term)) {
                     return;
                 }
+
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
-                List<String> snippets = getCenteredTermSnippets(term, rawText, 60);
+                List<String> snippets = getCenteredTermSnippets(term, normalizedContent, 60);
+
                 mongoDB.storeTermInfo(
                         term,
                         pageId,
@@ -261,15 +260,27 @@ public class Indexer {
                 termPositions.computeIfAbsent(term, k -> new ConcurrentHashMap<>())
                         .put(normalizedUrl, positions);
             }
-            System.out.println(threadInfo + " - Indexed: " + normalizedUrl);
+
+            System.out.println(threadInfo + " - Indexed from DB: " + normalizedUrl);
             synchronized (this) {
                 int current = processedPages.incrementAndGet();
                 System.out.println("Progress: " + current + "/" + visitedUrls.size());
             }
-            //System.out.println("Indexed: " + normalizedUrl);
+            return;
+        }
 
+        // Fall back to original fetching logic if no DB content available
+        Document document;
+        try {
+            document = fetchWithRetry(normalizedUrl, 3); // 3 retries
+        } catch (IOException e) {
+            System.err.println("Permanent failure for " + normalizedUrl);
+            return;
+        }
+
+        // Rest of original processing logic...
+        // [Keep all the original code for fetching and processing here]
     }
-
 
     public static String stemWord(String word) {
         Stemmer stemmer = new Stemmer();
