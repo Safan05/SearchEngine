@@ -8,20 +8,20 @@ import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
 import org.bson.types.ObjectId;
-import opennlp.tools.stemmer.PorterStemmer;
+//import opennlp.tools.stemmer.PorterStemmer;
 
 public class Indexer {
     private final DBController mongoDB;
     private final Set<String> visitedUrls;
     private final ExecutorService executor;
-    private final PorterStemmer stemmer;
+//    private final PorterStemmer stemmer;
     private final Map<String, Map<String, List<Integer>>> termPositions;
     private final Map<String, Set<String>> linkGraph = new HashMap<>(); // URL -> Outgoing links
     private final Map<String, Set<String>> reverseLinkGraph = new HashMap<>(); // URL -> Incoming links
 
     public Indexer() {
         System.out.println("Indexer started.");
-        this.stemmer = new PorterStemmer();
+//        this.stemmer = new PorterStemmer();
         this.termPositions = new ConcurrentHashMap<>();
 
         // Initialize database connection
@@ -226,7 +226,7 @@ public class Indexer {
                 //int idf = calculateAndStoreIDF();
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
-                List<String> snippets = getCenteredTermSnippets(term, rawText, 250);
+                List<String> snippets = getCenteredTermSnippets(term, rawText, 60);
                 mongoDB.storeTermInfo(
                         term,
                         pageId,
@@ -249,6 +249,14 @@ public class Indexer {
         }
     }
 
+    public static String stemWord(String word) {
+        Stemmer stemmer = new Stemmer();
+        stemmer.add(word.toCharArray(), word.length());
+        stemmer.stem();
+        String stemmed = stemmer.toString();
+        return stemmed;
+    }
+
     private TermData computeTFWithPositions(String text) {
         Map<String, Integer> tfMap = new HashMap<>();
         Map<String, List<Integer>> positionsMap = new HashMap<>();
@@ -259,7 +267,7 @@ public class Indexer {
             for (int i = 0; i < words.length; i++) {
                 String word = words[i].toLowerCase();
                 if (word.length() > 2) {
-                    String stemmed = stemmer.stem(word);
+                    String stemmed = stemWord(word);
                     tfMap.put(stemmed, tfMap.getOrDefault(stemmed, 0) + 1);
                     positionsMap.computeIfAbsent(stemmed, k -> new ArrayList<>()).add(i);
                     totalTerms++;
@@ -339,13 +347,7 @@ public class Indexer {
         }
         return snippets;
     }
-    public static String stemWord(String word) {
-        Stemmer stemmer = new Stemmer();
-        stemmer.add(word.toCharArray(), word.length());
-        stemmer.stem();
-        String stemmed = stemmer.toString();
-        return stemmed;
-    }
+
     private String validateAndNormalizeUrl(String url) {
         try {
             if (url == null || url.isEmpty() ||
