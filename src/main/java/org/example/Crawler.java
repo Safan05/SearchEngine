@@ -16,8 +16,8 @@ public class Crawler implements Runnable {
     private static final DBController mongoDB = new DBController();
     private static final ConcurrentHashMap<String, Boolean> visitedUrls = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> contentFingerprints = new ConcurrentHashMap<>();
-    private static final int THREAD_POOL_SIZE = 20;
-    private static final int MAX_PAGES = 300;
+    private static final int THREAD_POOL_SIZE = 5;
+    private static final int MAX_PAGES = 6000;
     private static final AtomicInteger pageCounter = new AtomicInteger(0);
     private static final BlockingQueue<String> urlQueue = new LinkedBlockingQueue<>();
 
@@ -27,7 +27,8 @@ public class Crawler implements Runnable {
 
     static {
         mongoDB.initializeDatabaseConnection();
-        mongoDB.resetVisitedPages();
+      //  mongoDB.resetVisitedPages();
+        mongoDB.getVisitedPages().forEach(fp -> {visitedUrls.put(fp, true);});
         mongoDB.getCompactStrings().forEach(fp -> contentFingerprints.put(fp, true));
     }
 
@@ -37,7 +38,6 @@ public class Crawler implements Runnable {
             try {
                 String crawledUrl = urlQueue.take(); // Blocking take instead of poll
                 if (crawledUrl == null) continue;
-
                 processUrl(crawledUrl);
             } catch (InterruptedException e) {
                 System.out.println("[INFO] Thread interrupted: " + Thread.currentThread().getName());
@@ -118,7 +118,15 @@ public class Crawler implements Runnable {
         // Load initial URLs
         Path path = Path.of("URLS.txt");
         try {
-            Files.lines(path, StandardCharsets.UTF_8).forEach(urlQueue::offer);
+            // Load pending URLs from DB first
+            List<String> pendingUrls = mongoDB.getPendingUrls();
+            if (!pendingUrls.isEmpty()) {
+                System.out.println("[RESUME] Loaded pending URLs from database.");
+                pendingUrls.forEach(urlQueue::offer);
+            } else {
+                System.out.println("[INIT] Loading URLs from URLS.txt.");
+                Files.lines(path, StandardCharsets.UTF_8).forEach(urlQueue::offer);
+            }
 
             // Submit tasks to executor service
             for (int i = 0; i < THREAD_POOL_SIZE; i++) {
@@ -128,10 +136,32 @@ public class Crawler implements Runnable {
 
             // Add shutdown hook for proper cleanup
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                running = false;
-                executorService.shutdownNow();
-                mongoDB.closeConnection();
+                try {
+                    System.out.println("[SHUTDOWN] Initiating shutdown sequence...");
+                    running = false;
+                    executorService.shutdownNow();
+
+                    // Clear previously saved queue and save current one
+                    mongoDB.clearPendingUrls();
+                    int savedCount = 0;
+                    for (String url : urlQueue) {
+                        mongoDB.savePendingUrl(url);
+                        savedCount++;
+                    }
+                    System.out.println("[SHUTDOWN] Saved " + savedCount + " pending URLs to database.");
+
+                    mongoDB.closeConnection();
+                } catch (Exception e) {
+                    System.err.println("[SHUTDOWN ERROR] " + e.getMessage());
+                }
             }));
+            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+            scheduler.scheduleAtFixedRate(() -> {
+                System.out.println("[AUTO-SAVE] Persisting queue...");
+                mongoDB.clearPendingUrls();
+                urlQueue.forEach(mongoDB::savePendingUrl);
+            }, 5, 5, TimeUnit.MINUTES);
+
 
             // Wait for completion
             executorService.awaitTermination(Long.MAX_VALUE, TimeUnit.DAYS);

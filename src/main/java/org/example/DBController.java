@@ -17,6 +17,7 @@ import org.bson.types.ObjectId;
 import opennlp.tools.stemmer.PorterStemmer;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Projections.*;
 import static com.mongodb.client.model.Updates.set;
 
 import java.util.*;
@@ -33,6 +34,7 @@ public class DBController {
     public MongoCollection<Document> pageCollection;
     public MongoCollection<Document> termsCollection;
     public MongoCollection<Document> pagesCollection;
+    public MongoCollection<Document> pendingPagesCollection;
     public MongoCollection<Document> toVisitCollection;
     public PorterStemmer stemmer = new PorterStemmer();
 
@@ -40,13 +42,14 @@ public class DBController {
         //String url = "mongodb+srv://abdallahsafan05:a123456789@cluster0.qyomt.mongodb.net/";
         MongoClient mongoClient = MongoClients.create("mongodb://localhost:27017");
         database = mongoClient.getDatabase("SearchEngine");
+        pendingPagesCollection = database.getCollection("PendingPages");
         pagesCollection = database.getCollection("IndexedPages");
         pageCollection = database.getCollection("VisitedPages");
         termsCollection = database.getCollection("Terms");
-        termsCollection.createIndex(
+      /*  termsCollection.createIndex(
                 new Document("term", 1),
                 new IndexOptions().unique(true)
-        );
+        );*/
         System.out.println("Connected to Database successfully");
     }
     public ObjectId storePageMetaInfo(String title, String url, String content,
@@ -171,16 +174,17 @@ public class DBController {
 
     public Set<String> getVisitedPages() {
         Set<String> visited = new HashSet<String>();
-        pageCollection.find().projection(Projections.include("URL")).map(document -> document.getString("URL"))
+        pageCollection.find().projection(include("URL")).map(document -> document.getString("URL"))
                 .into(visited);
-        return visited.isEmpty() ? null : visited;
+        return visited.isEmpty() ? Collections.emptySet() : visited;
+
     }
 
     public Set<String> getCompactStrings() {
         Set<String> compactStrings = new HashSet<String>();
-        pageCollection.find().projection(Projections.include("CompactString")).map(document -> document.getString("CompactString"))
+        pageCollection.find().projection(include("CompactString")).map(document -> document.getString("CompactString"))
                 .into(compactStrings);
-        return compactStrings;
+        return compactStrings.isEmpty() ? Collections.emptySet() : compactStrings;
     }
 
 
@@ -203,8 +207,28 @@ public class DBController {
         }
     }
     public void closeConnection() {
-        mongoClient.close();
-        System.out.println("Connection with MongoDB is closed");
+        if (mongoClient != null) {
+            mongoClient.close();
+            System.out.println("[DB] MongoDB connection closed.");
+        } else {
+            System.out.println("[DB] mongoClient was null at shutdown.");
+        }
+    }
+
+    public void savePendingUrl(String url) {
+        pendingPagesCollection.insertOne(new Document("url", url));
+    }
+
+    public List<String> getPendingUrls() {
+        List<String> urls = new ArrayList<>();
+        for (Document doc : pendingPagesCollection.find()) {
+            urls.add(doc.getString("url"));
+        }
+        return urls;
+    }
+
+    public void clearPendingUrls() {
+        pendingPagesCollection.deleteMany(new Document());
     }
     public boolean isPageIndexed(String normalizedUrl) {
         Document doc = pageCollection.find(eq("URL", normalizedUrl)).first();

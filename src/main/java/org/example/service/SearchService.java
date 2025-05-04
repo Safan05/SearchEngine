@@ -79,7 +79,6 @@ public class SearchService {
         if(isPhraseSearch(query)) {
             finalResults = handlePhraseResults(ranker_results,query.substring(1, query.length() - 1));
         }
-
         else {
             finalResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
 //            finalResults = new ArrayList<>(convertDocumentsToResultsWithoutRanking(results));

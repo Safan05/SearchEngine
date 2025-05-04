@@ -32,15 +32,23 @@ public class Indexer {
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
         //     System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
-        executor = Executors.newFixedThreadPool(20);
+        executor = Executors.newFixedThreadPool(5);
 
 
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
-        for (String url : visitedUrls) {
-            futures.add(executor.submit(() -> processPage(url)));
+        int batchSize = 100;
+        List<String> urlList = new ArrayList<>(visitedUrls);
+        for (int i = 0; i < urlList.size(); i += batchSize) {
+            List<String> batch = urlList.subList(i, Math.min(i + batchSize, urlList.size()));
+            for (String url : batch) {
+                futures.add(executor.submit(() -> processPage(url)));
+            }
+            waitForCompletion(futures);
+            futures.clear();  // Clean up after each batch
         }
+
         waitForCompletion(futures);
         System.out.println("All Pages processed.");
 
@@ -170,7 +178,7 @@ public class Indexer {
     }
 
     private void processPage(String url) {
-        String threadInfo = "Thread-" + Thread.currentThread().getId();
+        String threadInfo = "Thread-" + Thread.currentThread().getName();
         try {
             String normalizedUrl = validateAndNormalizeUrl(url);
             if (normalizedUrl == null) return;
