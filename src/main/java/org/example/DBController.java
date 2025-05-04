@@ -17,6 +17,7 @@ import org.bson.types.ObjectId;
 import opennlp.tools.stemmer.PorterStemmer;
 
 import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Projections.*;
 import static com.mongodb.client.model.Updates.set;
 
 import java.util.*;
@@ -80,13 +81,21 @@ public class DBController {
 
     public void storeTermInfo(String term, ObjectId pageId, String url,
                               String title, int frequency, double tf,
-                              List<Integer> positions, boolean[] headers, List<String> snippets) {
+                              List<Integer> positions, boolean[] headers,
+                              List<String> snippets) {
         if (term == null || term.isEmpty()) {
-            //System.out.println("Skipping empty term for URL: " + url);
             return;
         }
+
         try {
-            // Create the page info document
+            // Check if term is already marked as full
+            Document existingTerm = termsCollection.find(eq("term", term)).first();
+            if (existingTerm != null && existingTerm.getBoolean("isFull", false)) {
+                System.out.println("Skipping term '" + term + "' - marked as full");
+                return;
+            }
+
+            // Create the page info document with size optimization
             Document pageInfo = new Document()
                     .append("pageId", pageId)
                     .append("url", url)
@@ -99,11 +108,12 @@ public class DBController {
 
             // Create update operation
             Document update = new Document()
-                    .append("$inc", new Document("df", 1)) // Increment document frequency
-                    .append("$setOnInsert", new Document() // Only set on insert
+                    .append("$inc", new Document("df", 1))
+                    .append("$setOnInsert", new Document()
                             .append("term", term)
-                            .append("idf", 0.0)) // Initialize IDF
-                    .append("$push", new Document("pages", pageInfo)); // Add page info
+                            .append("idf", 0.0)
+                            .append("isFull", false))
+                    .append("$push", new Document("pages", pageInfo));
 
             // Perform atomic update with upsert
             UpdateResult result = termsCollection.updateOne(
@@ -111,17 +121,28 @@ public class DBController {
                     update,
                     new UpdateOptions().upsert(true)
             );
+
         } catch (com.mongodb.MongoWriteException e) {
-            if (e.getError().getCode() == 11000) { // Duplicate key error
-                // Retry the operation if we hit a race condition
-                storeTermInfo(term, pageId, url, title, frequency, tf, positions, headers, snippets);
+            if (e.getError().getCode() == 17419) { // Document too large error
+                // Mark the term as full
+                termsCollection.updateOne(
+                        eq("term", term),
+                        new Document("$set", new Document("isFull", true))
+                );
+                System.out.println("Marked term '" + term + "' as full (reached size limit)");
+            }
+            else if (e.getError().getCode() == 11000) {
+                // Retry for duplicate key race condition
+                storeTermInfo(term, pageId, url, title, frequency, tf,
+                        positions, headers, snippets);
             } else {
-                System.err.println("Error storing term info: " + e.getMessage());
+                System.err.println("Error storing term: "+term+" info: " + e.getMessage());
             }
         } catch (Exception e) {
             System.err.println("Unexpected error storing term info: " + e.getMessage());
         }
     }
+
     public List<String> getLinksFromPage(String url) {
         Document pageDoc = pageCollection.find(eq("URL", url)).first();
 
@@ -171,14 +192,14 @@ public class DBController {
 
     public Set<String> getVisitedPages() {
         Set<String> visited = new HashSet<String>();
-        pageCollection.find().projection(Projections.include("URL")).map(document -> document.getString("URL"))
+        pageCollection.find().projection(include("URL")).map(document -> document.getString("URL"))
                 .into(visited);
         return visited.isEmpty() ? null : visited;
     }
 
     public Set<String> getCompactStrings() {
         Set<String> compactStrings = new HashSet<String>();
-        pageCollection.find().projection(Projections.include("CompactString")).map(document -> document.getString("CompactString"))
+        pageCollection.find().projection(include("CompactString")).map(document -> document.getString("CompactString"))
                 .into(compactStrings);
         return compactStrings;
     }
@@ -214,7 +235,19 @@ public class DBController {
         Boolean isIndexed = doc.getBoolean("isIndexed");
         return isIndexed != null && isIndexed;
     }
-
-
+    public void reseterminfo(){
+        try {
+            DeleteResult result = termsCollection.deleteMany(new Document());
+            System.out.println("Deleted " + result.getDeletedCount() + " documents");
+        } catch (Exception e) {
+            System.err.println("Error deleting documents: " + e.getMessage());
+        }
+    }
+    public boolean isTermFull(String term) {
+        Document termDoc = termsCollection.find(eq("term", term))
+                .projection(fields(include("isFull"), excludeId()))
+                .first();
+        return termDoc != null && termDoc.getBoolean("isFull", false);
+    }
 
 }

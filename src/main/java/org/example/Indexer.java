@@ -7,10 +7,13 @@ import org.jsoup.nodes.Element;
 import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import org.bson.types.ObjectId;
 //import opennlp.tools.stemmer.PorterStemmer;
 
 public class Indexer {
+    private final AtomicInteger processedPages = new AtomicInteger(0);
     private final DBController mongoDB;
     private final Set<String> visitedUrls;
     private final ExecutorService executor;
@@ -27,6 +30,7 @@ public class Indexer {
         // Initialize database connection
         mongoDB = new DBController();
         mongoDB.initializeDatabaseConnection();
+        mongoDB.reseterminfo();
 
         // Retrieve visited URLs
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
@@ -40,6 +44,7 @@ public class Indexer {
         List<Future<?>> futures = new ArrayList<>();
         for (String url : visitedUrls) {
             futures.add(executor.submit(() -> processPage(url)));
+
         }
         waitForCompletion(futures);
         System.out.println("All Pages processed.");
@@ -171,17 +176,27 @@ public class Indexer {
 
     private void processPage(String url) {
         String threadInfo = "Thread-" + Thread.currentThread().getId();
-        try {
+
+
+
             String normalizedUrl = validateAndNormalizeUrl(url);
+
             if (normalizedUrl == null) return;
             if (mongoDB.isPageIndexed(normalizedUrl)) {
                 System.out.println("Skipping already indexed URL: " + normalizedUrl);
+                synchronized (this) {
+                    int current = processedPages.incrementAndGet();
+                    System.out.println("Progress: " + current + "/" + visitedUrls.size());
+                }
                 return;
             }
-            Document document = Jsoup.connect(normalizedUrl)
-                    .userAgent("Mozilla/5.0")
-                    .timeout(10000)
-                    .get();
+            Document document;
+            try {
+                document = fetchWithRetry(normalizedUrl, 3); // 3 retries
+            } catch (IOException e) {
+                System.err.println("Permanent failure for " + normalizedUrl);
+                return;
+            }
 
             String title = document.title();
 
@@ -224,6 +239,9 @@ public class Indexer {
                 String term = entry.getKey();
                 int frequency = entry.getValue();
                 //int idf = calculateAndStoreIDF();
+                if (mongoDB.isTermFull(term)) {
+                    return;
+                }
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
                 List<String> snippets = getCenteredTermSnippets(term, rawText, 60);
@@ -243,10 +261,12 @@ public class Indexer {
                         .put(normalizedUrl, positions);
             }
             System.out.println(threadInfo + " - Indexed: " + normalizedUrl);
+            synchronized (this) {
+                int current = processedPages.incrementAndGet();
+                System.out.println("Progress: " + current + "/" + visitedUrls.size());
+            }
             //System.out.println("Indexed: " + normalizedUrl);
-        } catch (IOException e) {
-            System.err.println(threadInfo +" - Failed to index URL: " + url + " - " + e.getMessage());
-        }
+
     }
 
     public static String stemWord(String word) {
@@ -264,19 +284,29 @@ public class Indexer {
 
         if (text != null && !text.isEmpty()) {
             String[] words = text.split("\\s+");
-            for (int i = 0; i < words.length; i++) {
-                String word = words[i].toLowerCase();
-                if (word.length() > 2) {
-                    String stemmed = stemWord(word);
-                    tfMap.put(stemmed, tfMap.getOrDefault(stemmed, 0) + 1);
-                    positionsMap.computeIfAbsent(stemmed, k -> new ArrayList<>()).add(i);
-                    totalTerms++;
+            int positionIndex = 0;
+
+            for (String word : words) {
+                String lower = word.toLowerCase();
+
+                // Split on hyphens (e.g., "cross-tail" => ["cross", "tail"])
+                String[] subWords = lower.split("-");
+
+                for (String subWord : subWords) {
+                    if (subWord.length() > 2) {
+                        String stemmed = stemWord(subWord);
+                        tfMap.put(stemmed, tfMap.getOrDefault(stemmed, 0) + 1);
+                        positionsMap.computeIfAbsent(stemmed, k -> new ArrayList<>()).add(positionIndex);
+                        totalTerms++;
+                        positionIndex++;
+                    }
                 }
             }
         }
 
         return new TermData(tfMap, positionsMap, totalTerms);
     }
+
 
     private void waitForCompletion(List<Future<?>> futures) {
         for (Future<?> future : futures) {
@@ -368,5 +398,29 @@ public class Indexer {
             //System.err.println("Invalid URL format: " + url);
             return null;
         }
+    }
+    private Document fetchWithRetry(String url, int maxRetries) throws IOException {
+        int retryCount = 0;
+        IOException lastException = null;
+
+        while (retryCount < maxRetries) {
+            try {
+                return Jsoup.connect(url)
+                        .timeout(10000)
+                        .userAgent("Mozilla/5.0")
+                        .get();
+            } catch (IOException e) {
+                lastException = e;
+                retryCount++;
+                System.err.println("Retry " + retryCount + " for " + url);
+                try {
+                    Thread.sleep(1000 * retryCount); // Exponential backoff
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted during retry", ie);
+                }
+            }
+        }
+        throw lastException;
     }
 }
