@@ -9,3 +9,4 @@ public class SearchApiApplication {
 		SpringApplication.run(SearchApiApplication.class, args);
 	}
 }
+

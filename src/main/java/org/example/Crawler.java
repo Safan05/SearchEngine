@@ -17,7 +17,7 @@ public class Crawler implements Runnable {
     private static final ConcurrentHashMap<String, Boolean> visitedUrls = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, Boolean> contentFingerprints = new ConcurrentHashMap<>();
     private static final int THREAD_POOL_SIZE = 20;
-    private static final int MAX_PAGES = 6000;
+    private static final int MAX_PAGES = 300;
     private static final AtomicInteger pageCounter = new AtomicInteger(0);
     private static final BlockingQueue<String> urlQueue = new LinkedBlockingQueue<>();
 
