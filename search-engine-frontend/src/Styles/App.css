@@ -4,6 +4,22 @@
   padding: 0;
   box-sizing: border-box;
 }
+.app-header {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  text-align: center;
+  border-bottom: 1px solid #e1e1e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+}
+
+.logo {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+}
 
 body {
   font-family: Arial, sans-serif;

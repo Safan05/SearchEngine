@@ -58,8 +58,11 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Fiboooo ✌️</h1>
+        <img src="/tomato-logo.png" alt="Tomato Logo" className="logo" />
+        <h1>Tomatoes </h1>
+        <img src="/tomato-logo.png" alt="Tomato Logo" className="logo" />
       </header>
+
 
       <main className="app-main">
         <SearchBar onSearch={handleSearch} />
