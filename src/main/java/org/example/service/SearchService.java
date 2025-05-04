@@ -3,7 +3,6 @@ package org.example.service;
 
 import org.example.Ranker;
 import org.example.RankerResults;
-
 import org.example.model.SearchResponse;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
@@ -12,23 +11,18 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import org.example.wordResult;
-
 import org.jsoup.Jsoup;
 import org.slf4j.Logger;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.*;
 import org.slf4j.LoggerFactory;
-
 import org.springframework.stereotype.Service;
-
 import java.util.*;
-
-
-
-
-
 import java.io.IOException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 import static com.mongodb.client.model.Filters.*;
 
 
@@ -41,8 +35,6 @@ public class SearchService {
     protected final MongoDatabase database;
     private final MongoCollection<Document> collection;
     private final MongoCollection<Document> Pages;
-    private List<Document> documents;
-    private List<Document> ranked_documents;
     protected List<RankerResults> ranker_results;
 
     public SearchService() {
@@ -69,13 +61,9 @@ public class SearchService {
         // Check if the query is a phrase search (enclosed in quotes)
         if (isPhraseSearch(query)) {
             results = handlePhraseSearch(query);
-        } else if (hasPhraseOperators(query)) {
-            results = handlePhraseWithOperators(query);
         } else {
             results = handleTermSearch(query);
         }
-
-
 
         if (results.isEmpty()) {
             logger.warn("No results found for query: {}", query);
@@ -84,25 +72,21 @@ public class SearchService {
             return response;
         }
 
+        List<String> Query_Words = Arrays.asList(query.toLowerCase().split("[\\s\\-_.!@#]+\"\'"));
+        this.ranker_results = rank_documents(results,Query_Words);
         List<Document> finalResults;
+
         if(isPhraseSearch(query)) {
-            finalResults = handlePhraseResults(results,query.substring(1, query.length() - 1));
+            finalResults = handlePhraseResults(ranker_results,query.substring(1, query.length() - 1));
         }
+
         else {
-            // with ranking
-//        List<String> Query_Words = Arrays.asList(query.toLowerCase().split("\\s+"));
-//        this.ranker_results = rank_documents(results,Query_Words);
-//        List<Document> finalResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
-
-
-            // without ranking
-
-            finalResults = new ArrayList<>(convertDocumentsToResultsWithoutRanking(results));
+            finalResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
+//            finalResults = new ArrayList<>(convertDocumentsToResultsWithoutRanking(results));
         }
 
-        List<Document> finalFilteredResults = filterPages(finalResults);
-        response.setResults(finalFilteredResults);
-        response.setTotal(finalFilteredResults.size());
+        response.setResults(finalResults);
+        response.setTotal(finalResults.size());
 
         return response;
     }
@@ -111,44 +95,50 @@ public class SearchService {
         return query.startsWith("\"") && query.endsWith("\"") && query.length() > 2;
     }
 
-    private boolean hasPhraseOperators(String query) {
-        // Simple check for OR/AND/NOT between quotes
-        return query.contains(" OR ") || query.contains(" AND ") || query.contains(" NOT ");
-    }
+
 
     private List<Document> handlePhraseSearch(String query) {
         // Remove the quotes
         String phrase = query.substring(1, query.length() - 1);
-        String[] terms = phrase.toLowerCase().split("\\s+");
+        String[] terms = phrase.toLowerCase().split("[\\s\\-_.!@#\"']+");
 
         // Get documents containing all terms (like current handleTermSearch)
         List<Document> documentsWithAllTerms = handleTermSearch(phrase);
 
         // Now filter to only keep documents where terms appear in order
-        List<Document> phraseResults = new ArrayList<>();
-
+        List<Document> finalDocuments = new ArrayList<>();
         for (Document termDoc : documentsWithAllTerms) {
             List<Document> pages = termDoc.getList("pages", Document.class);
+            List<Document> docPages = new ArrayList<>();
             for (Document page : pages) {
                 int x = checkPhraseInPage(page.getList("snippets", String.class), phrase);
                 if (x != -1) {
-                    page.append("snippetIndex", x);
-                    page.append("term", termDoc.getString("term"));
-                    phraseResults.add(page);
-
+                    docPages.add(page);
                 }
             }
+            Document genDoc = new Document();
+            genDoc.put("id",termDoc.get("_id"));
+            genDoc.put("pages",docPages);
+            genDoc.put("term",termDoc.getString("term"));
+            if(termDoc.keySet().contains("idf") && termDoc.getDouble("idf") != null){
+                genDoc.put("idf",termDoc.getDouble("idf"));
+            }
+            else{
+                genDoc.put("idf",null);
+            }
+            genDoc.put("df",termDoc.get("df"));
+            finalDocuments.add(genDoc);
         }
 
-        return phraseResults;
+        return finalDocuments;
     }
 
-    private List<Document> handlePhraseResults(List<Document> pages, String origPhrase){
+    private List<Document> handlePhraseResults(List<RankerResults> pages, String origPhrase){
         List<Document> results = new ArrayList<>();
-        for(Document page: pages){
-
-            int snippetIndex = page.getInteger("snippetIndex");
-            String phrasesnippet = page.getList("snippets", String.class).get(snippetIndex);
+        for(RankerResults page: pages){
+            int snippetIndex = checkPhraseInPage(page.getSnippets(),origPhrase);
+            if(snippetIndex == -1) continue;
+            String phrasesnippet = page.getSnippets().get(snippetIndex);
             phrasesnippet = phrasesnippet.replace("<b>","").replace("</b>","");
             int startOfPhrase = phrasesnippet.indexOf(origPhrase);
             int endOfPhrase = startOfPhrase + origPhrase.length();
@@ -157,10 +147,10 @@ public class SearchService {
 
             phrasesnippet = phrasesnippet.substring(0,startOfPhrase) + "<b>" + origPhrase + "</b>" + phrasesnippet.substring(endOfPhrase);
 
-            String url = page.getString("url");
-            String title = page.getString("title");
-            String term = page.getString("term");
-            String id = page.getString("pageId");
+            String url = page.getLink();
+            String title = page.getTitle();
+            String term = page.getTerm();
+            String id = page.getId();
             Map<String, Object> dictionary = new HashMap<>();
             dictionary.put("term", term);
             dictionary.put("url", url);
@@ -186,64 +176,109 @@ public class SearchService {
 
     }
 
-    private List<Document> handlePhraseWithOperators(String query) {
-        // Split into phrases and operators
-        String[] parts = query.split(" (OR|AND|NOT) ");
-        if (parts.length != 2) {
-            // Only support 2 operations as per requirements
-            return handleTermSearch(query);
+
+
+
+//    public List<Document> filterPages(List<Document> pages,List<String>queryWords) {
+//        List<Document> uniquePages = new ArrayList<>();
+//        List<String> urls = new ArrayList<>();
+//        for (Document page : pages) {
+//            String pageUrl = page.getString("url");
+//            if (!urls.contains(pageUrl)) {
+//                urls.add(pageUrl);
+//                uniquePages.add(page);
+//            }
+//            else{
+//                Document page1 = uniquePages.get(urls.indexOf(pageUrl));
+//                Document page2 = page;
+//
+//                List<String> snippets = new ArrayList<>();
+//                snippets.add(page1.getString("snippet"));
+//                snippets.add(page2.getString("snippet"));
+//
+//                System.out.println("s1:" + page1.getString("snippet"));
+//                System.out.println("s2:" + page2.getString("snippet"));
+//
+//                String bestSnippet = extractSnippetsFromUrl(pageUrl,queryWords);
+//                uniquePages.get(urls.indexOf(pageUrl)).put("snippet",bestSnippet);
+//
+//                System.out.println("best snippet:" + bestSnippet);
+//
+//
+//            }
+//
+//        }
+//
+//        return uniquePages;
+//    }
+
+    public static String extractSnippetsFromUrl(String url, List<String> queryWords) {
+        String pageText = fetchPageText(url);
+        if (pageText == null || pageText.isEmpty()) return "";
+
+        Set<String> stemmedWords = new HashSet<>();
+        for (String word : queryWords) {
+            stemmedWords.add(stemWord(word.toLowerCase()));
         }
 
-        String operator = query.contains(" OR ") ? "OR" :
-                query.contains(" AND ") ? "AND" : "NOT";
-
-        List<Document> leftResults = handlePhraseSearch(parts[0]);
-        List<Document> rightResults = handlePhraseSearch(parts[1]);
-
-        switch (operator) {
-            case "OR":
-                return combineResults(leftResults, rightResults, true);
-            case "AND":
-                return combineResults(leftResults, rightResults, false);
-            case "NOT":
-                return excludeResults(leftResults, rightResults);
-            default:
-                return leftResults;
+        String[] tokens = pageText.split("\\s+");
+        List<String> lowerTokens = new ArrayList<>();
+        for (String token : tokens) {
+            lowerTokens.add(token.toLowerCase());
         }
-    }
 
-    private List<Document> combineResults(List<Document> list1, List<Document> list2, boolean union) {
-        Set<Document> combined = new HashSet<>(list1);
-        if (union) {
-            combined.addAll(list2);
-        } else {
-            combined.retainAll(list2);
-        }
-        return new ArrayList<>(combined);
-    }
-
-    private List<Document> excludeResults(List<Document> list1, List<Document> list2) {
-        Set<Document> result = new HashSet<>(list1);
-        result.removeAll(list2);
-        return new ArrayList<>(result);
-    }
-
-
-    public List<Document> filterPages(List<Document> pages) {
-        List<Document> uniquePages = new ArrayList<>();
-        List<String> urls = new ArrayList<>();
-        for (Document page : pages) {
-            String pageUrl = page.getString("url");
-
-
-            if (!urls.contains(pageUrl)) {
-                urls.add(pageUrl);
-                uniquePages.add(page);
+        List<Integer> matchIndexes = new ArrayList<>();
+        for (int i = 0; i < lowerTokens.size(); i++) {
+            String clean = tokens[i].replaceAll("\\W", "").toLowerCase();
+            if (stemmedWords.contains(stemWord(clean))) {
+                matchIndexes.add(i);
             }
         }
 
-        return uniquePages;
+        if (matchIndexes.isEmpty()) return "";
+
+        List<String> snippets = new ArrayList<>();
+        for (int index : matchIndexes) {
+            int start = Math.max(0, index - 35);
+            int end = Math.min(tokens.length, index + 36);
+
+            StringBuilder snippet = new StringBuilder("- ");
+            for (int i = start; i < end; i++) {
+                String clean = tokens[i].replaceAll("\\W", "").toLowerCase();
+                if (stemmedWords.contains(stemWord(clean))) {
+                    snippet.append("<b>").append(tokens[i]).append("</b>");
+                } else {
+                    snippet.append(tokens[i]);
+                }
+                snippet.append(" ");
+            }
+
+            snippets.add(snippet.toString().trim());
+        }
+
+        return String.join("\n", snippets);
     }
+
+    private static String fetchPageText(String urlString) {
+        StringBuilder result = new StringBuilder();
+        try {
+            URL url = new URL(urlString);
+            BufferedReader in = new BufferedReader(
+                    new InputStreamReader(url.openStream())
+            );
+            String line;
+            while ((line = in.readLine()) != null) {
+                result.append(line).append(" ");
+            }
+            in.close();
+        } catch (IOException e) {
+            return "";
+        }
+        return result.toString().replaceAll("(?i)<[^>]*>", ""); // Strip HTML tags
+    }
+
+
+
 
     public List<RankerResults> rank_documents(List<Document> documents, List<String> Query_Words) {
 
@@ -428,7 +463,7 @@ public class SearchService {
         return results;
     }
     private List<Document> handleTermSearch(String query) {
-        String[] terms = query.toLowerCase().split("\\s+");
+        String[] terms = query.toLowerCase().split("[\\s\\-_.!@#'\"]+");
         Set<Document> results = new HashSet<>(); // Use Set to avoid duplicates
         for (String term : terms) {
             String stemmed = stemWord(term);
