@@ -49,9 +49,10 @@ public class ExactSentenceSearch {
     public static void main(String[] args) {
         // Test cases
         String text = "Hello worlds! This is a test. hello again. hello!";
-
-        // Exact matches
-        System.out.println(findExactSentence("Hello", text)); // 0
+        String [] arr = text.split("[\\s\\-_.!@#]+");
+        for(String s: arr){
+            System.out.println(s);
+        }
 
 
     }
