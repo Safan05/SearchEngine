@@ -52,7 +52,7 @@ public class Ranker {
                 System.out.println(result.getRanks());
                 // Track best PageRank
                 components.pageRank = Math.max(components.pageRank, result.getRanks().get(i));
-                components.snippets = result.getSnippets();
+                components.snippets = result.getSnippets().get(i);
 
                 // Store metadata (use first occurrence)
                 if (components.title == null) {

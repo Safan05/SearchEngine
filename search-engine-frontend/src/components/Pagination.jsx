@@ -1,11 +1,20 @@
 import React from "react";
 
 function Pagination({ resultsPerPage, totalResults, currentPage, paginate }) {
-  const pageNumbers = [];
   const totalPages = Math.ceil(totalResults / resultsPerPage);
+  const maxPageButtons = 3; // Maximum number of page buttons to display
 
-  // Calculate page numbers to display
-  for (let i = 1; i <= totalPages; i++) {
+  // Calculate the start and end page numbers to display
+  let startPage = Math.max(1, currentPage - Math.floor(maxPageButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxPageButtons - 1);
+
+  // Adjust startPage if endPage is at the maximum
+  if (endPage === totalPages) {
+    startPage = Math.max(1, endPage - maxPageButtons + 1);
+  }
+
+  const pageNumbers = [];
+  for (let i = startPage; i <= endPage; i++) {
     pageNumbers.push(i);
   }
 

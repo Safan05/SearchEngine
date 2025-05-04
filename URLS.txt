@@ -17,3 +17,6 @@ https://nationalzoo.si.edu/animals
 https://www.nationalgeographic.com/animals/birds
 https://www.nationalgeographic.com/animals/birds/facts/greater-rhea
 https://www.allaboutbirds.org/guide/American_Crow/overview
+https://stackoverflow.com/questions
+https://github.com/
+https://www.linkedin.com/in/hazem-emam-645436272/

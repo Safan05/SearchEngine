@@ -3,8 +3,7 @@ package org.example.service;
 
 import org.example.Ranker;
 import org.example.RankerResults;
-import org.example.SearchApiApplication;
-import com.github.xjavathehutt.porterstemmer.PorterStemmer;
+
 import org.example.model.SearchResponse;
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoClient;
@@ -13,24 +12,24 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import org.bson.Document;
 import org.example.wordResult;
-import org.hibernate.cache.cfg.internal.DomainDataRegionConfigImpl;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.boot.SpringApplication;
-import org.springframework.stereotype.Service;
-
-
-import javax.naming.directory.SearchResult;
-import java.util.*;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.jsoup.Jsoup;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import org.springframework.stereotype.Service;
+
+import java.util.*;
+
+
+
 
 
 import java.io.IOException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.*;
 
 
 @Service
@@ -39,12 +38,12 @@ public class SearchService {
     private static final Logger logger = LoggerFactory.getLogger(SearchService.class);
     private final  Ranker ranker= new Ranker();
     private final MongoClient mongoClient;
-    private final MongoDatabase database;
+    protected final MongoDatabase database;
     private final MongoCollection<Document> collection;
     private final MongoCollection<Document> Pages;
     private List<Document> documents;
     private List<Document> ranked_documents;
-    private List<RankerResults> ranker_results;
+    protected List<RankerResults> ranker_results;
 
     public SearchService() {
         try {
@@ -67,48 +66,187 @@ public class SearchService {
         SearchResponse response = new SearchResponse();
         List<Document> results = new ArrayList<>();
 
-        try {
-            Pattern phrasePattern = Pattern.compile("\"([^\"]+)\"");
-            Matcher matcher = phrasePattern.matcher(query);
+        // Check if the query is a phrase search (enclosed in quotes)
+        if (isPhraseSearch(query)) {
+            results = handlePhraseSearch(query);
+        } else if (hasPhraseOperators(query)) {
+            results = handlePhraseWithOperators(query);
+        } else {
+            results = handleTermSearch(query);
+        }
 
-            if (matcher.find()) {
-                String phrase = matcher.group(1).toLowerCase().trim();
-                results = handlePhraseSearch(phrase);
 
-                String remainingQuery = matcher.replaceAll("").trim();
-                if (!remainingQuery.isEmpty()) {
-                    List<Document> termResults = handleTermSearch(remainingQuery);
-                    results = intersectResults(results, termResults);
-                }
-            } else {
-                results = handleTermSearch(query);
-            }
 
-            if (results.isEmpty()) {
-                logger.warn("No results found for query: {}", query);
-                response.setResults(results);
-                response.setTotal(results.size());
-                return response;
-            }
-
+        if (results.isEmpty()) {
+            logger.warn("No results found for query: {}", query);
             response.setResults(results);
             response.setTotal(results.size());
-            logger.info("Search query processed successfully: {} with {} results", query, results.size());
-        } catch (Exception e) {
-            logger.error("Error processing search query: {}", e.getMessage(), e);
-            throw new RuntimeException("Error processing search query", e);
+            return response;
         }
-        List<String> Query_Words = Arrays.asList(query.toLowerCase().split("\\s+"));
-        this.ranker_results = rank_documents(results,Query_Words);
-        List<Document> allResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
-        response.setResults(allResults);
-        response.setTotal(allResults.size());
+
+        List<Document> finalResults;
+        if(isPhraseSearch(query)) {
+            finalResults = handlePhraseResults(results,query.substring(1, query.length() - 1));
+        }
+        else {
+            // with ranking
+//        List<String> Query_Words = Arrays.asList(query.toLowerCase().split("\\s+"));
+//        this.ranker_results = rank_documents(results,Query_Words);
+//        List<Document> finalResults = new ArrayList<>(convertDocumentsToResults(ranker_results));
+
+
+            // without ranking
+
+            finalResults = new ArrayList<>(convertDocumentsToResultsWithoutRanking(results));
+        }
+
+        List<Document> finalFilteredResults = filterPages(finalResults);
+        response.setResults(finalFilteredResults);
+        response.setTotal(finalFilteredResults.size());
 
         return response;
     }
 
+    private boolean isPhraseSearch(String query) {
+        return query.startsWith("\"") && query.endsWith("\"") && query.length() > 2;
+    }
+
+    private boolean hasPhraseOperators(String query) {
+        // Simple check for OR/AND/NOT between quotes
+        return query.contains(" OR ") || query.contains(" AND ") || query.contains(" NOT ");
+    }
+
+    private List<Document> handlePhraseSearch(String query) {
+        // Remove the quotes
+        String phrase = query.substring(1, query.length() - 1);
+        String[] terms = phrase.toLowerCase().split("\\s+");
+
+        // Get documents containing all terms (like current handleTermSearch)
+        List<Document> documentsWithAllTerms = handleTermSearch(phrase);
+
+        // Now filter to only keep documents where terms appear in order
+        List<Document> phraseResults = new ArrayList<>();
+
+        for (Document termDoc : documentsWithAllTerms) {
+            List<Document> pages = termDoc.getList("pages", Document.class);
+            for (Document page : pages) {
+                int x = checkPhraseInPage(page.getList("snippets", String.class), phrase);
+                if (x != -1) {
+                    page.append("snippetIndex", x);
+                    page.append("term", termDoc.getString("term"));
+                    phraseResults.add(page);
+
+                }
+            }
+        }
+
+        return phraseResults;
+    }
+
+    private List<Document> handlePhraseResults(List<Document> pages, String origPhrase){
+        List<Document> results = new ArrayList<>();
+        for(Document page: pages){
+
+            int snippetIndex = page.getInteger("snippetIndex");
+            String phrasesnippet = page.getList("snippets", String.class).get(snippetIndex);
+            phrasesnippet = phrasesnippet.replace("<b>","").replace("</b>","");
+            int startOfPhrase = phrasesnippet.indexOf(origPhrase);
+            int endOfPhrase = startOfPhrase + origPhrase.length();
+            if(endOfPhrase >= phrasesnippet.length())
+                endOfPhrase = phrasesnippet.length() - 1;
+
+            phrasesnippet = phrasesnippet.substring(0,startOfPhrase) + "<b>" + origPhrase + "</b>" + phrasesnippet.substring(endOfPhrase);
+
+            String url = page.getString("url");
+            String title = page.getString("title");
+            String term = page.getString("term");
+            String id = page.getString("pageId");
+            Map<String, Object> dictionary = new HashMap<>();
+            dictionary.put("term", term);
+            dictionary.put("url", url);
+            dictionary.put("title", title);
+            dictionary.put("snippet", phrasesnippet);
+            dictionary.put("id",id);
+            Document result = new Document(dictionary);
+            results.add(result);
+        }
+        return results;
+    }
+
+    private int checkPhraseInPage(List<String> snippets, String phrase) {
+        String snippet;
+
+        for (int i = 0;i < snippets.size();i++) {
+            String s = snippets.get(i).replace("<b>","").replace("</b>","");
+            if(findExactSentence(phrase,s) != -1) {
+                return i;
+            }
+        }
+        return -1;
+
+    }
+
+    private List<Document> handlePhraseWithOperators(String query) {
+        // Split into phrases and operators
+        String[] parts = query.split(" (OR|AND|NOT) ");
+        if (parts.length != 2) {
+            // Only support 2 operations as per requirements
+            return handleTermSearch(query);
+        }
+
+        String operator = query.contains(" OR ") ? "OR" :
+                query.contains(" AND ") ? "AND" : "NOT";
+
+        List<Document> leftResults = handlePhraseSearch(parts[0]);
+        List<Document> rightResults = handlePhraseSearch(parts[1]);
+
+        switch (operator) {
+            case "OR":
+                return combineResults(leftResults, rightResults, true);
+            case "AND":
+                return combineResults(leftResults, rightResults, false);
+            case "NOT":
+                return excludeResults(leftResults, rightResults);
+            default:
+                return leftResults;
+        }
+    }
+
+    private List<Document> combineResults(List<Document> list1, List<Document> list2, boolean union) {
+        Set<Document> combined = new HashSet<>(list1);
+        if (union) {
+            combined.addAll(list2);
+        } else {
+            combined.retainAll(list2);
+        }
+        return new ArrayList<>(combined);
+    }
+
+    private List<Document> excludeResults(List<Document> list1, List<Document> list2) {
+        Set<Document> result = new HashSet<>(list1);
+        result.removeAll(list2);
+        return new ArrayList<>(result);
+    }
+
+
+    public List<Document> filterPages(List<Document> pages) {
+        List<Document> uniquePages = new ArrayList<>();
+        List<String> urls = new ArrayList<>();
+        for (Document page : pages) {
+            String pageUrl = page.getString("url");
+
+
+            if (!urls.contains(pageUrl)) {
+                urls.add(pageUrl);
+                uniquePages.add(page);
+            }
+        }
+
+        return uniquePages;
+    }
+
     public List<RankerResults> rank_documents(List<Document> documents, List<String> Query_Words) {
-        // TODO: call ranker
+
         List<wordResult> wordResults = new ArrayList<>();
         for (Document document : documents) {
             wordResult wordresult = new wordResult();
@@ -122,12 +260,12 @@ public class SearchService {
                 wordresult.addTF(page.getDouble("tf"));
                 wordresult.addPosition(page.getList("positions",Integer.class));
                 wordresult.addHeaders(page.getList("headers", Boolean.class));
-                wordresult.setSnippets(page.getList("snippets",String.class));
+                wordresult.addSnippets(page.getList("snippets",String.class));
                 double rank=0;
                // System.out.println(url);
                // System.out.println("THE PAGE IS"+Pages.find(eq("URL",url)).first());
                 if (Pages.find(eq("URL",url)).first()!= null)
-                    rank = Pages.find(eq("URL",url)).first().getDouble("pageRank");
+                    rank = Objects.requireNonNull(Pages.find(eq("URL", url)).first()).getDouble("pageRank");
                 wordresult.addranks(rank);
             }
             wordResults.add(wordresult);
@@ -215,6 +353,7 @@ public class SearchService {
         return boldedSnippet;
     }
 
+
     public List<Document> convertDocumentsToResults(List<RankerResults> documents) throws IOException {
         List<Document> results = new ArrayList<>();
 
@@ -223,13 +362,10 @@ public class SearchService {
         }
 
         for (RankerResults doc : documents) {
-//            String term = doc.;
-//            List<Document> pages = doc.getList("pages", Document.class);
 
-//            for (Document page : pages) {
             String url = doc.getLink();
             String title = doc.getTitle();
-//            String snippet = doc.getDescription(); // Fetch text from URL
+
             String term = doc.getTerm();
             String id = doc.getId();
             List<String> snippets = doc.getSnippets();
@@ -240,7 +376,7 @@ public class SearchService {
             dictionary.put("term", term);
             dictionary.put("url", url);
             dictionary.put("title", title);
-            dictionary.put("snippet", snippets.get(0));
+            dictionary.put("snippet", snippets.getFirst());
             dictionary.put("id",id);
 
             Document result = new Document(dictionary);
@@ -248,11 +384,49 @@ public class SearchService {
 
             results.add(result);
             }
-//        }
 
         return results;
     }
 
+    public List<Document> convertDocumentsToResultsWithoutRanking(List<Document> documents) throws IOException {
+        List<Document> results = new ArrayList<>();
+
+        if (documents == null || documents.isEmpty()) {
+            return results;
+        }
+
+        for (Document doc : documents) {
+            List<Document> pages = doc.getList("pages", Document.class);
+            for(Document page: pages){
+
+                List<String> snippets = page.getList("snippets",String.class);
+                if(snippets == null || snippets.isEmpty() ||
+                        snippets.getFirst() == null || snippets.getFirst().isEmpty()) continue;
+
+                String url = page.getString("url");
+                String title = page.getString("title");
+
+                String term = doc.getString("term");
+                String id = page.getString("pageId");
+
+                Map<String, Object> dictionary = new HashMap<>();
+                dictionary.put("term", term);
+                dictionary.put("url", url);
+                dictionary.put("title", title);
+                dictionary.put("snippet", snippets.getFirst());
+                dictionary.put("id",id);
+
+                Document result = new Document(dictionary);
+
+
+                results.add(result);
+            }
+
+
+        }
+
+        return results;
+    }
     private List<Document> handleTermSearch(String query) {
         String[] terms = query.toLowerCase().split("\\s+");
         Set<Document> results = new HashSet<>(); // Use Set to avoid duplicates
@@ -268,142 +442,59 @@ public class SearchService {
         return new ArrayList<>(results);
     }
 
-    private List<Document> handlePhraseSearch(String phrase) {
-        List<Document> phraseResults = new ArrayList<>();
-        String[] terms = phrase.split("\\s+");
-
-        if (terms.length < 1) return phraseResults;
-
-        List<List<Document>> termDocsList = new ArrayList<>();
-        for (String term : terms) {
-            if (term.isEmpty()) continue;
-            List<Document> termDocs = new ArrayList<>();
-            FindIterable<Document> documents = collection.find(new Document("term", term));
-            for (Document doc : documents) {
-                termDocs.add(doc);
-            }
-            if (termDocs.isEmpty()) {
-                logger.warn("No documents found for term: {}", term);
-                return phraseResults; // Early return if any term has no matches
-            }
-            termDocsList.add(termDocs);
-        }
-
-        List<String> commonPageIds = findCommonPageIds(termDocsList);
-
-        for (String pageId : commonPageIds) {
-            if (checkPhraseInPage(pageId, termDocsList, terms)) {
-                for (Document doc : termDocsList.get(0)) {
-                    if (docContainsPageId(doc, pageId)) {
-                        if (!phraseResults.contains(doc)) {
-                            phraseResults.add(doc);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        return phraseResults;
-    }
-
-    private List<String> findCommonPageIds(List<List<Document>> termDocsList) {
-        List<String> commonPageIds = new ArrayList<>();
-        if (termDocsList.isEmpty()) return commonPageIds;
-
-        Set<String> pageIds = new HashSet<>();
-        for (Document doc : termDocsList.get(0)) {
-            List<Document> pages = doc.getList("pages", Document.class);
-            for (Document page : pages) {
-                pageIds.add(page.getString("id"));
-            }
-        }
-
-        for (int i = 1; i < termDocsList.size(); i++) {
-            Set<String> currentPageIds = new HashSet<>();
-            for (Document doc : termDocsList.get(i)) {
-                List<Document> pages = doc.getList("pages", Document.class);
-                for (Document page : pages) {
-                    currentPageIds.add(page.getString("id"));
-                }
-            }
-            pageIds.retainAll(currentPageIds);
-        }
-
-        return new ArrayList<>(pageIds);
-    }
-
-    private boolean checkPhraseInPage(String pageId, List<List<Document>> termDocsList, String[] terms) {
-        List<List<Integer>> positionsList = new ArrayList<>();
-        for (int i = 0; i < termDocsList.size(); i++) {
-            List<Integer> positions = new ArrayList<>();
-            for (Document doc : termDocsList.get(i)) {
-                List<Document> pages = doc.getList("pages", Document.class);
-                for (Document page : pages) {
-                    if (page.getString("id").equals(pageId)) {
-                        positions.addAll(page.getList("positions", Integer.class));
-                        break;
-                    }
-                }
-                if (!positions.isEmpty()) break;
-            }
-            if (positions.isEmpty()) {
-                logger.warn("No positions found for term: {} in page: {}", terms[i], pageId);
-                return false;
-            }
-            positionsList.add(positions);
-        }
-
-        // Sort positions for each term to check sequence
-        for (List<Integer> positions : positionsList) {
-            Collections.sort(positions);
-        }
-
-        // Check for consecutive positions
-        for (int i = 0; i < positionsList.get(0).size(); i++) {
-            int startPos = positionsList.get(0).get(i);
-            boolean isSequence = true;
-            for (int j = 1; j < positionsList.size(); j++) {
-                int expectedPos = startPos + j;
-                if (positionsList.get(j).isEmpty() || !positionsList.get(j).contains(expectedPos)) {
-                    isSequence = false;
-                    break;
-                }
-            }
-            if (isSequence) return true;
-        }
-        return false;
-    }
-
-    private boolean docContainsPageId(Document doc, String pageId) {
-        List<Document> pages = doc.getList("pages", Document.class);
-        for (Document page : pages) {
-            if (page.getString("id").equals(pageId)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private List<Document> intersectResults(List<Document> phraseResults, List<Document> termResults) {
-        Set<Document> termResultSet = new HashSet<>(termResults);
-        List<Document> intersected = new ArrayList<>();
-        for (Document phraseDoc : phraseResults) {
-            if (termResultSet.contains(phraseDoc)) {
-                intersected.add(phraseDoc);
-            }
-        }
-        return intersected;
-    }
-
 
      public static String stemWord(String word) {
         Stemmer stemmer = new Stemmer();
          stemmer.add(word.toCharArray(), word.length());
          stemmer.stem();
-         String stemmed = stemmer.toString();
-        return stemmed;
+        return stemmer.toString();
     }
+
+    public int findExactSentence(String sentence, String text) {
+        sentence = sentence.trim();
+        int sentenceLength = sentence.length();
+        int textLength = text.length();
+
+        if (sentenceLength == 0) {
+            return textLength == 0 ? 0 : -1;
+        }
+
+        // Search through the text for exact matches
+        int index = 0;
+        while (index < textLength) {
+            // Find the next occurrence of the sentence
+            index = text.indexOf(sentence, index);
+            if (index == -1) {
+                break;
+            }
+
+            // Check boundaries - must be either:
+            // 1. At start of text and sentence ends at text boundary or is followed by whitespace/punctuation
+            // 2. Preceded by whitespace/punctuation and ends at text boundary or is followed by whitespace/punctuation
+            boolean validStart = (index == 0) ||
+                    isBoundaryCharacter(text.charAt(index - 1));
+            boolean validEnd = (index + sentenceLength == textLength) ||
+                    isBoundaryCharacter(text.charAt(index + sentenceLength));
+
+            if (validStart && validEnd) {
+                return index;
+            }
+
+            index++;
+        }
+
+        return -1;
+    }
+
+    private static boolean isBoundaryCharacter(char c) {
+        // Consider whitespace or punctuation as boundary characters
+        return Character.isWhitespace(c) ||
+                c == '.' || c == '!' || c == '?' ||
+                c == ',' || c == ';' || c == ':' ||
+                c == '(' || c == ')' || c == '[' ||
+                c == ']' || c == '{' || c == '}';
+    }
+
 
 
     public void close() {

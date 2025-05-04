@@ -69,7 +69,6 @@ body {
 .search-input-container {
   position: relative;
   display: flex;
-
 }
 
 .search-input-container input {
@@ -226,6 +225,7 @@ body {
 .result-url a:hover {
   text-decoration: underline;
 }
+
 .result-snippet {
   color: #545454;
 }
