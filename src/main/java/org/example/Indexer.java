@@ -17,14 +17,14 @@ public class Indexer {
     private final DBController mongoDB;
     private final Set<String> visitedUrls;
     private final ExecutorService executor;
-//    private final PorterStemmer stemmer;
+    // private final PorterStemmer stemmer;
     private final Map<String, Map<String, List<Integer>>> termPositions;
     private final Map<String, Set<String>> linkGraph = new HashMap<>(); // URL -> Outgoing links
     private final Map<String, Set<String>> reverseLinkGraph = new HashMap<>(); // URL -> Incoming links
 
     public Indexer() {
         System.out.println("Indexer started.");
-//        this.stemmer = new PorterStemmer();
+        // this.stemmer = new PorterStemmer();
         this.termPositions = new ConcurrentHashMap<>();
 
         // Initialize database connection
@@ -34,28 +34,33 @@ public class Indexer {
 
         // Retrieve visited URLs
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
-        //     System.out.println("Visited urls: " + visitedUrls);
+        // System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
-        executor = Executors.newFixedThreadPool(20);
-
-
+        executor = Executors.newFixedThreadPool(5);
 
         // Second pass: Process content and calculate PageRank
         List<Future<?>> futures = new ArrayList<>();
-        for (String url : visitedUrls) {
-            futures.add(executor.submit(() -> processPage(url)));
-
+        int batchSize = 100;
+        List<String> urlList = new ArrayList<>(visitedUrls);
+        for (int i = 0; i < urlList.size(); i += batchSize) {
+            List<String> batch = urlList.subList(i, Math.min(i + batchSize, urlList.size()));
+            for (String url : batch) {
+                futures.add(executor.submit(() -> processPage(url)));
+            }
+            waitForCompletion(futures);
+            futures.clear(); // Clean up after each batch
         }
+
         waitForCompletion(futures);
         System.out.println("All Pages processed.");
 
         // First pass: Build link graph
         buildLinkGraph();
         // Calculate PageRank scores
-          Map<String, Double> pageRanks = calculatePageRank();
+        Map<String, Double> pageRanks = calculatePageRank();
 
         // Store PageRank scores
-          storePageRanks(pageRanks);
+        storePageRanks(pageRanks);
         System.out.println("All Pages ranked.");
         // Calculate and store IDF values
         calculateAndStoreIDF();
@@ -70,14 +75,14 @@ public class Indexer {
             Thread.currentThread().interrupt(); // Preserve interrupt status
         }
 
-
         System.out.println("Indexer finished.");
     }
 
     private void buildLinkGraph() {
         for (String url : visitedUrls) {
             String normalizedUrl = validateAndNormalizeUrl(url);
-            if (normalizedUrl == null) continue;
+            if (normalizedUrl == null)
+                continue;
             List<String> links = mongoDB.getLinksFromPage(normalizedUrl);
             linkGraph.putIfAbsent(normalizedUrl, new HashSet<>());
 
@@ -92,7 +97,6 @@ public class Indexer {
             reverseLinkGraph.putIfAbsent(normalizedUrl, reverseLinkGraph.getOrDefault(normalizedUrl, new HashSet<>()));
         }
     }
-
 
     private Map<String, Double> calculatePageRank() {
         final double DAMPING_FACTOR = 0.85;
@@ -175,10 +179,8 @@ public class Indexer {
     }
 
     private void processPage(String url) {
-        String threadInfo = "Thread-" + Thread.currentThread().getId();
-
-
-
+        String threadInfo = "Thread-" + Thread.currentThread().getName();
+        try {
             String normalizedUrl = validateAndNormalizeUrl(url);
 
             if (normalizedUrl == null) return;
@@ -307,14 +309,14 @@ public class Indexer {
         return new TermData(tfMap, positionsMap, totalTerms);
     }
 
-
     private void waitForCompletion(List<Future<?>> futures) {
         for (Future<?> future : futures) {
             try {
                 future.get();
             } catch (InterruptedException | ExecutionException e) {
                 System.err.println("Indexing error: " + e.getMessage());
-                if (e instanceof InterruptedException) Thread.currentThread().interrupt();
+                if (e instanceof InterruptedException)
+                    Thread.currentThread().interrupt();
             }
         }
     }
@@ -329,13 +331,14 @@ public class Indexer {
         final int totalTerms;
 
         public TermData(Map<String, Integer> termFrequency,
-                        Map<String, List<Integer>> termPositions,
-                        int totalTerms) {
+                Map<String, List<Integer>> termPositions,
+                int totalTerms) {
             this.termFrequency = termFrequency;
             this.termPositions = termPositions;
             this.totalTerms = totalTerms;
         }
     }
+
     private List<String> getCenteredTermSnippets(String term, String text, int snippetLength) {
         List<String> snippets = new ArrayList<>();
 
@@ -369,8 +372,10 @@ public class Indexer {
                 }
 
                 // Add ellipsis if not at beginning/end
-                if (start > 0) snippet.insert(0, "... ");
-                if (end < words.length) snippet.append("...");
+                if (start > 0)
+                    snippet.insert(0, "... ");
+                if (end < words.length)
+                    snippet.append("...");
 
                 snippets.add(snippet.toString().trim());
             }
@@ -395,10 +400,11 @@ public class Indexer {
             new java.net.URL(url);
             return url;
         } catch (Exception e) {
-            //System.err.println("Invalid URL format: " + url);
+            // System.err.println("Invalid URL format: " + url);
             return null;
         }
     }
+
     private Document fetchWithRetry(String url, int maxRetries) throws IOException {
         int retryCount = 0;
         IOException lastException = null;

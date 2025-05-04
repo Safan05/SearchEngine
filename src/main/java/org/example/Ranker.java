@@ -13,6 +13,8 @@ public class Ranker {
     private static final double PAGERANK_WEIGHT = 0.3;
 
     public List<RankerResults> score(List<wordResult> results, List<String> queryWords) {
+        System.out.println(queryWords);
+        System.out.println(results);
         if (results == null || results.isEmpty()) {
             return Collections.emptyList();
         }

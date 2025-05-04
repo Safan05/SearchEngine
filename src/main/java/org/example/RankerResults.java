@@ -21,6 +21,7 @@ public class RankerResults {
         this.snippets=ss;
     }
     public String getLink(){return link;}
+
     public String getTitle(){return title;}
     public String getDescription(){return description;}
     public List<String> getSnippets(){return snippets;}
