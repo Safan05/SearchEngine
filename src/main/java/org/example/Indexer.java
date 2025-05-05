@@ -202,6 +202,7 @@ public class Indexer {
 
             String title = dbPage.get("title", String.class);
             String normalizedContent = dbPage.get("content", String.class);
+            normalizedContent = TextProcessor.normalize(normalizedContent);
 
             // Extract headers information from DB if available, or set default
             boolean[] headers = new boolean[3];
@@ -270,13 +271,7 @@ public class Indexer {
         }
 
         // Fall back to original fetching logic if no DB content available
-        Document document;
-        try {
-            document = fetchWithRetry(normalizedUrl, 3); // 3 retries
-        } catch (IOException e) {
-            System.err.println("Permanent failure for " + normalizedUrl);
-            return;
-        }
+
 
         // Rest of original processing logic...
         // [Keep all the original code for fetching and processing here]
