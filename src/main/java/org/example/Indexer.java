@@ -18,7 +18,7 @@ public class Indexer {
     private final Map<String, Map<String, List<Integer>>> termPositions;
     private final Map<String, Set<String>> linkGraph = new HashMap<>(); // URL -> Outgoing links
     private final Map<String, Set<String>> reverseLinkGraph = new HashMap<>(); // URL -> Incoming links
-
+    private int totalDocuments;
     public Indexer() {
         System.out.println("Indexer started.");
 //        this.stemmer = new PorterStemmer();
@@ -30,9 +30,11 @@ public class Indexer {
 
         // Retrieve visited URLs
         visitedUrls = Collections.synchronizedSet(mongoDB.getVisitedPages());
+        totalDocuments = visitedUrls.size();
         //     System.out.println("Visited urls: " + visitedUrls);
         // Create thread pool
-        executor = Executors.newFixedThreadPool(5);
+
+        executor = Executors.newFixedThreadPool(10);
 
 
 
@@ -61,6 +63,8 @@ public class Indexer {
           storePageRanks(pageRanks);
         System.out.println("All Pages ranked.");
         // Calculate and store IDF values
+
+
         calculateAndStoreIDF();
 
         executor.shutdown();
@@ -75,6 +79,8 @@ public class Indexer {
 
 
         System.out.println("Indexer finished.");
+
+
     }
 
     private void buildLinkGraph() {
@@ -170,11 +176,23 @@ public class Indexer {
 
     private void calculateAndStoreIDF() {
         long totalDocuments = mongoDB.getTotalDocumentCount();
-        termPositions.keySet().forEach(term -> {
+        Set<String> terms = mongoDB.getAllTerms();
+        System.out.println("Total documents: " + totalDocuments);
+        terms.forEach(term -> {
             int documentFrequency = mongoDB.getDocumentCountForTerm(term);
+            //   System.out.println("Document Frequency: " + documentFrequency);
             double idf = Math.log((double) totalDocuments / (1 + documentFrequency));
             mongoDB.updateTermIDF(term, idf);
         });
+        /*
+        termPositions.keySet().forEach(term -> {
+            int documentFrequency = mongoDB.getDocumentCountForTerm(term);
+         //   System.out.println("Document Frequency: " + documentFrequency);
+            double idf = Math.log((double) totalDocuments / (1 + documentFrequency));
+            mongoDB.updateTermIDF(term, idf);
+        });
+
+         */
     }
 
     private void processPage(String url) {
@@ -194,6 +212,7 @@ public class Indexer {
             String title = document.title();
 
             // Extract headers information
+
             boolean[] headers = new boolean[3];
             headers[0] = !document.select("h1").isEmpty();
             headers[1] = !document.select("h2").isEmpty();
@@ -234,6 +253,23 @@ public class Indexer {
                 //int idf = calculateAndStoreIDF();
                 List<Integer> positions = termData.termPositions.get(term);
                 double tf = (double) frequency / termData.totalTerms;
+                // After getting termData from computeTFWithPositions()
+                Map<String, boolean[]> termHeaderPresence = new HashMap<>();
+
+                    boolean[] termHeaders = new boolean[3];
+
+                    // Check if term appears in any H1
+                    termHeaders[0] = document.select("h1").stream()
+                            .anyMatch(h1 -> h1.text().toLowerCase().contains(term));
+                    // Check if term appears in any H2
+                    termHeaders[1] = document.select("h2").stream()
+                            .anyMatch(h2 -> h2.text().toLowerCase().contains(term));
+                    // Check if term appears in any H3
+                    termHeaders[2] = document.select("h3").stream()
+                            .anyMatch(h3 -> h3.text().toLowerCase().contains(term));
+                    termHeaderPresence.put(term, termHeaders);
+
+// Then store termHeaderPresence along with other term info
                 List<String> snippets = getCenteredTermSnippets(term, rawText, 60);
                 mongoDB.storeTermInfo(
                         term,
@@ -243,12 +279,13 @@ public class Indexer {
                         frequency,
                         tf,
                         positions,
-                        headers,
+                        termHeaders,
                         snippets
                 );
 
                 termPositions.computeIfAbsent(term, k -> new ConcurrentHashMap<>())
                         .put(normalizedUrl, positions);
+
             }
             System.out.println(threadInfo + " - Indexed: " + normalizedUrl);
             //System.out.println("Indexed: " + normalizedUrl);

@@ -171,7 +171,13 @@ public class DBController {
         Document termDoc = termsCollection.find(eq("term", term)).first();
         return termDoc != null ? termDoc.getInteger("df", 0) : 0;
     }
+    public Set<String> getAllTerms() {
+        Set<String> terms = new HashSet<String>();
+        termsCollection.find().projection(include("term")).map(document -> document.getString("term"))
+                .into(terms);
+        return terms.isEmpty() ? Collections.emptySet() : terms;
 
+    }
     public Set<String> getVisitedPages() {
         Set<String> visited = new HashSet<String>();
         pageCollection.find().projection(include("URL")).map(document -> document.getString("URL"))

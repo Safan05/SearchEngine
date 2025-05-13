@@ -58,9 +58,7 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <img src="/tomato-logo.png" alt="Tomato Logo" className="logo" />
-        <h1>طماطم </h1>
-        <img src="/tomato-logo.png" alt="Tomato Logo" className="logo" />
+        <h1>Sniffari</h1>
       </header>
 
 
