@@ -5,23 +5,21 @@ import java.util.stream.Collectors;
 
 public class Ranker {
     // Weights configuration
-    private static final double TITLE_WEIGHT = 0.3;
-    private static final double H1_WEIGHT = 0.25;
-    private static final double H2_WEIGHT = 0.15;
+    private static final double TITLE_WEIGHT = 0.7;
+    private static final double H1_WEIGHT = 0.45;
+    private static final double H2_WEIGHT = 0.25;
     private static final double H3_WEIGHT = 0.1;
     private static final double TFIDF_WEIGHT = 0.4;
     private static final double PAGERANK_WEIGHT = 0.3;
 
     public List<RankerResults> score(List<wordResult> results, List<String> queryWords) {
-        System.out.println(queryWords);
-        System.out.println(results);
+        System.out.println(results.get(0).Titles);
         if (results == null || results.isEmpty()) {
             return Collections.emptyList();
         }
 
         // 1. Aggregate all pages with their components
         Map<String, PageComponents> pageData = aggregatePageData(results, queryWords);
-
         // 2. Calculate scores for each page
         Map<String, Double> finalScores = calculateScores(pageData, queryWords);
 
@@ -33,6 +31,8 @@ public class Ranker {
         Map<String, PageComponents> pageData = new HashMap<>();
 
         for (wordResult result : results) {
+            System.out.println("Iteration");
+            System.out.println(result.getLinks());
             for (int i = 0; i < result.getLinks().size(); i++) {
                 String link = normalizeUrl(result.getLinks().get(i));
                 PageComponents components = pageData.computeIfAbsent(link, k -> new PageComponents());
@@ -48,10 +48,15 @@ public class Ranker {
 
                 // Track title matches
                 String title = result.getTitles().get(i).toLowerCase();
-                components.titleMatches += queryWords.stream().filter(word -> title.contains(word.toLowerCase())).count();
+                System.out.println(title);
+                for (String word : queryWords) {
+                    System.out.println(word);
+                    if (title.contains(word.toLowerCase())) {
+                        System.out.println("Title Match Found ######################");
+                        components.titleMatches++;
+                    }
+                }
 
-                System.out.println(pageData);
-                System.out.println(result.getRanks());
                 // Track best PageRank
                 components.pageRank = Math.max(components.pageRank, result.getRanks().get(i));
                 components.snippets = result.getSnippets().get(i);
@@ -83,8 +88,7 @@ public class Ranker {
             double tfIdfScore = TFIDF_WEIGHT * (comp.tfIdfSum / maxTfIdf);
             double pageRankScore = PAGERANK_WEIGHT * (comp.pageRank / maxPageRank);
             double titleScore = TITLE_WEIGHT * (comp.titleMatches / (double) queryWords.size());
-            double headerScore = Math.min(comp.headerScore, H1_WEIGHT); // Cap at best header weight
-
+            double headerScore = Math.min(comp.headerScore, H1_WEIGHT); // Cap at best header weight1
             finalScores.put(entry.getKey(),
                     tfIdfScore + pageRankScore + titleScore + headerScore);
         }
